@@ -40,7 +40,14 @@ from excel_import import (
 )
 from normalization.columns import COLUMN_ALIASES
 from normalization.result import RecordType
+from services import (
+    ConflictBehavior,
+    ServiceCapacityImportPlan,
+    ServiceCapacityImportResult,
+    ServiceCapacityImportService,
+)
 from ui.column_mapping_dialog import ColumnMappingDialog
+from ui.service_capacity_import_dialog import ServiceCapacityImportDialog
 from ui.workers import FunctionWorker
 
 
@@ -60,6 +67,8 @@ class ExcelImportWidget(QWidget):
         self._workbook_info: WorkbookInfo | None = None
         self._report: AnalysisReport | None = None
         self._mapping_overrides: dict[int, str | None] = {}
+        self._import_in_progress = False
+        self._report_imported = False
         self._build_ui()
         self._connect_signals()
         self._reset_results()
@@ -80,7 +89,7 @@ class ExcelImportWidget(QWidget):
         self.file_type_combo = QComboBox()
         self.file_type_combo.addItem("Otomatik belirle", None)
         for record_type, label in TYPE_LABELS.items():
-            self.file_type_combo.addItem(label, record_type)
+            self.file_type_combo.addItem(label, record_type.value)
         source_layout.addWidget(QLabel("Çalışma sayfası:"), 1, 0)
         source_layout.addWidget(self.sheet_combo, 1, 1)
         source_layout.addWidget(QLabel("Dosya türü:"), 1, 2)
@@ -89,9 +98,13 @@ class ExcelImportWidget(QWidget):
         button_layout = QHBoxLayout()
         self.analyze_button = QPushButton("Dosyayı Analiz Et")
         self.mapping_button = QPushButton("Sütun Eşleştirmeyi Düzenle")
+        self.import_capacity_button = QPushButton(
+            "Geçerli Servis Kayıtlarını Aktar"
+        )
         self.clear_button = QPushButton("Temizle")
         button_layout.addWidget(self.analyze_button)
         button_layout.addWidget(self.mapping_button)
+        button_layout.addWidget(self.import_capacity_button)
         button_layout.addStretch()
         button_layout.addWidget(self.clear_button)
         source_layout.addLayout(button_layout, 2, 0, 1, 4)
@@ -120,9 +133,9 @@ class ExcelImportWidget(QWidget):
         counts_layout.addWidget(QLabel("Filtre:"))
         self.filter_combo = QComboBox()
         self.filter_combo.addItem("Tümü", None)
-        self.filter_combo.addItem("Geçerli", PreviewStatus.GECERLI)
-        self.filter_combo.addItem("Uyarılı", PreviewStatus.UYARILI)
-        self.filter_combo.addItem("Hatalı", PreviewStatus.HATALI)
+        self.filter_combo.addItem("Geçerli", PreviewStatus.GECERLI.value)
+        self.filter_combo.addItem("Uyarılı", PreviewStatus.UYARILI.value)
+        self.filter_combo.addItem("Hatalı", PreviewStatus.HATALI.value)
         counts_layout.addWidget(self.filter_combo)
         root.addLayout(counts_layout)
 
@@ -158,6 +171,7 @@ class ExcelImportWidget(QWidget):
         self.choose_file_button.clicked.connect(self._choose_file)
         self.analyze_button.clicked.connect(self._analyze)
         self.mapping_button.clicked.connect(self._edit_mapping)
+        self.import_capacity_button.clicked.connect(self._prepare_capacity_import)
         self.clear_button.clicked.connect(self.clear)
         self.sheet_combo.currentIndexChanged.connect(self._sheet_changed)
         self.file_type_combo.currentIndexChanged.connect(self._file_type_changed)
@@ -171,19 +185,22 @@ class ExcelImportWidget(QWidget):
         self.mapping_button.setEnabled(
             not busy and self._selected_sheet() is not None
         )
+        self.import_capacity_button.setEnabled(
+            not busy and self._capacity_import_available()
+        )
 
-    def _run_async(self, function, on_result) -> None:
+    def _run_async(self, function, on_result, on_error=None) -> None:
         worker = FunctionWorker(function)
         self._workers.add(worker)
         worker.signals.result.connect(on_result)
-        worker.signals.error.connect(self._show_error)
+        worker.signals.error.connect(on_error or self._show_error)
         worker.signals.finished.connect(partial(self._worker_finished, worker))
         self._set_busy(True)
         self.thread_pool.start(worker)
 
     def _worker_finished(self, worker: FunctionWorker) -> None:
         self._workers.discard(worker)
-        self._set_busy(False)
+        self._set_busy(bool(self._workers))
 
     def _show_error(self, message: str) -> None:
         QMessageBox.critical(self, "Excel Okuma Hatası", message)
@@ -235,7 +252,7 @@ class ExcelImportWidget(QWidget):
             return
         detection = detect_record_type(sheet.headers)
         if detection.is_confident and detection.recommended_type is not None:
-            index = self.file_type_combo.findData(detection.recommended_type)
+            index = self.file_type_combo.findData(detection.recommended_type.value)
             self.file_type_combo.setCurrentIndex(index)
         else:
             self.file_type_combo.setCurrentIndex(0)
@@ -245,11 +262,17 @@ class ExcelImportWidget(QWidget):
 
     def _selected_record_type(self) -> RecordType | None:
         value = self.file_type_combo.currentData()
-        return value if isinstance(value, RecordType) else None
+        if value is None:
+            return None
+        try:
+            return RecordType(value)
+        except ValueError:
+            return None
 
     def _file_type_changed(self) -> None:
         self._mapping_overrides.clear()
         self._report = None
+        self._report_imported = False
         self._reset_results()
         available = self._selected_sheet() is not None
         self.analyze_button.setEnabled(available)
@@ -280,12 +303,88 @@ class ExcelImportWidget(QWidget):
 
     def _analysis_ready(self, report: AnalysisReport) -> None:
         self._report = report
+        self._report_imported = False
         self.total_label.setText(f"Toplam: {report.total_count}")
         self.valid_label.setText(f"Geçerli: {report.valid_count}")
         self.warning_label.setText(f"Uyarılı: {report.warning_count}")
         self.error_label.setText(f"Hatalı: {report.error_count}")
         self.mapping_summary.setPlainText(self._mapping_text(report))
         self._populate_preview()
+        self.import_capacity_button.setEnabled(self._capacity_import_available())
+
+    def _capacity_import_available(self) -> bool:
+        return bool(
+            self._report is not None
+            and self._report.record_type is RecordType.SERVIS_KAPASITE
+            and any(row.validation.is_valid for row in self._report.rows)
+            and not self._import_in_progress
+            and not self._report_imported
+        )
+
+    def _prepare_capacity_import(self) -> None:
+        if self._import_in_progress or not self._capacity_import_available():
+            return
+        report = self._report
+        if report is None:
+            return
+        self._import_in_progress = True
+        self._run_async(
+            lambda: ServiceCapacityImportService().preview_import(
+                report,
+                ConflictBehavior.SKIP,
+                include_warning_rows=True,
+            ),
+            self._show_capacity_import_confirmation,
+            self._show_capacity_import_error,
+        )
+
+    def _show_capacity_import_confirmation(
+        self,
+        plan: ServiceCapacityImportPlan,
+    ) -> None:
+        dialog = ServiceCapacityImportDialog(plan, self)
+        if not dialog.exec():
+            self._import_in_progress = False
+            self._set_busy(bool(self._workers))
+            return
+        report = self._report
+        if report is None:
+            self._import_in_progress = False
+            return
+        behavior = dialog.conflict_behavior()
+        self._run_async(
+            lambda: ServiceCapacityImportService().import_report(
+                report,
+                behavior,
+                include_warning_rows=True,
+            ),
+            self._capacity_import_completed,
+            self._show_capacity_import_error,
+        )
+
+    def _capacity_import_completed(
+        self,
+        result: ServiceCapacityImportResult,
+    ) -> None:
+        self._import_in_progress = False
+        self._report_imported = True
+        self.import_capacity_button.setEnabled(False)
+        QMessageBox.information(
+            self,
+            "Servis Kapasite Aktarımı",
+            "Servis kapasite aktarımı tamamlandı.\n\n"
+            f"Eklenen fiziksel servis: {result.added_service_count}\n"
+            f"Eklenen servis vardiyası: {result.added_shift_count}\n"
+            f"Güncellenen kayıt: {result.updated_count}\n"
+            f"Atlanan kayıt: {result.skipped_count}\n"
+            f"Hatalı kayıt: {result.invalid_count}\n"
+            f"Onayla aktarılan uyarılı kayıt: {result.imported_warning_count}",
+        )
+
+    def _show_capacity_import_error(self, message: str) -> None:
+        self._import_in_progress = False
+        self._set_busy(bool(self._workers))
+        QMessageBox.critical(self, "Servis Kapasite Aktarım Hatası", message)
 
     def _detection_text(self, detection) -> str:
         lines = ["Otomatik dosya türü puanları:"]
@@ -329,7 +428,10 @@ class ExcelImportWidget(QWidget):
             self.preview_table.setColumnCount(0)
             return
 
-        selected_status = self.filter_combo.currentData()
+        selected_value = self.filter_combo.currentData()
+        selected_status = (
+            PreviewStatus(selected_value) if selected_value is not None else None
+        )
         filtered_rows = [
             row
             for row in report.rows
@@ -447,10 +549,13 @@ class ExcelImportWidget(QWidget):
         self.preview_table.setColumnCount(0)
         self.analyze_button.setEnabled(False)
         self.mapping_button.setEnabled(False)
+        self.import_capacity_button.setEnabled(False)
 
     def clear(self, *, keep_path: bool = False) -> None:
         self._workbook_info = None
         self._report = None
+        self._report_imported = False
+        self._import_in_progress = False
         self._mapping_overrides.clear()
         self.sheet_combo.clear()
         self.file_type_combo.setCurrentIndex(0)

@@ -12,7 +12,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from openpyxl import Workbook
-from PySide6.QtCore import QCoreApplication, QEventLoop, QThreadPool, QTimer
+from PySide6.QtCore import QEventLoop, QThreadPool, QTimer
+from PySide6.QtWidgets import QApplication
 
 from excel_import import (
     ExcelReadError,
@@ -24,6 +25,7 @@ from excel_import import (
 )
 from normalization.result import RecordType
 from ui.workers import FunctionWorker
+from ui.excel_import_widget import ExcelImportWidget
 
 
 PERSONNEL_HEADERS = [
@@ -120,6 +122,15 @@ class ExcelImportTestCase(unittest.TestCase):
         detection = detect_record_type(SERVICE_ROUTE_HEADERS)
         self.assertTrue(detection.is_confident)
         self.assertEqual(detection.recommended_type, RecordType.SERVIS_GUZERGAH)
+
+    def test_selected_file_type_is_read_back_from_qt_combo(self) -> None:
+        application = QApplication.instance() or QApplication([])
+        widget = ExcelImportWidget()
+        index = widget.file_type_combo.findData(RecordType.PERSONEL.value)
+        widget.file_type_combo.setCurrentIndex(index)
+        self.assertEqual(widget._selected_record_type(), RecordType.PERSONEL)
+        widget.close()
+        self.assertIsNotNone(application)
 
     def test_empty_worksheet_is_detected(self) -> None:
         path = self._write_workbook(
@@ -241,7 +252,7 @@ class ExcelImportTestCase(unittest.TestCase):
         rows.extend(personnel_values(str(1000 + index)) for index in range(5000))
         path = self._write_workbook("large.xlsx", {"Personel": rows})
 
-        application = QCoreApplication.instance() or QCoreApplication([])
+        application = QApplication.instance() or QApplication([])
         event_loop = QEventLoop()
         ui_tick = threading.Event()
         result_holder: list[object] = []

@@ -18,11 +18,12 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - Excel çalışma kitabı ve dolu/boş sayfa okuma altyapısı
 - Dosya türü tahmini ve değiştirilebilir sütun eşleştirme planı
 - İş parçacığında çalışan doğrulama ve filtrelenebilir önizleme ekranı
+- Servis kapasite kayıtları için aktarım öncesi özet ve çakışma seçimi
+- Transaction ile yeni fiziksel servis/servis vardiyası ekleme ve kontrollü güncelleme
 
-Excel verilerini veritabanına kaydetme, personel ve servis yönetim ekranları, harita,
+Yalnızca doğrulanmış Servis Kapasite Excel kayıtları kullanıcı onayıyla veritabanına
+aktarılabilir. Personel ve servis güzergâhı Excel aktarımı, yönetim ekranları, harita,
 atama algoritması, PyInstaller ve Inno Setup özellikleri henüz geliştirilmemiştir.
-Önizlenen Excel verileri yalnızca bellekte tutulur; gerçek veya örnek personel/servis
-verisi otomatik eklenmez.
 
 ## Gereksinimler
 
@@ -60,6 +61,14 @@ veya kişisel personel verisi tutulmamalıdır.
 ```
 
 Uygulama açılırken eksik SQLAlchemy tabloları otomatik oluşturulur.
+
+## Servis kapasite aktarımı
+
+Servis Kapasite dosyasını seçip analiz ettikten sonra `Geçerli Servis Kayıtlarını
+Aktar` butonunu kullanın. Aktarım öncesi özet penceresi yeni servisleri, yeni vardiya
+kayıtlarını, çakışmaları, hataları ve uyarıları gösterir. Çakışmalarda varsayılan
+seçenek mevcut kaydı koruyup Excel satırını atlamaktır; istenirse kapasite, rota adı
+ve aktiflik bilgileri güncellenebilir. Aktarım tek transaction içinde yürütülür.
 
 ## Testleri çalıştırma
 
@@ -108,6 +117,7 @@ personel_servisi_atama_sistemi/
 |   `-- repositories/
 |-- excel_import/
 |-- normalization/
+|-- services/
 |-- tests/
 `-- ui/
 ```

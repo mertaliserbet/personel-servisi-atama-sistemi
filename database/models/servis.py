@@ -90,6 +90,7 @@ class ServisVardiyasi(ActiveMixin, TimestampMixin, Base):
         nullable=False,
     )
     kapasite: Mapped[int] = mapped_column(Integer, nullable=False)
+    rota_adi: Mapped[str | None] = mapped_column(String(300))
 
     servis: Mapped[Servis] = relationship(back_populates="vardiyalar")
     atamalar: Mapped[list[Atama]] = relationship(back_populates="servis_vardiyasi")

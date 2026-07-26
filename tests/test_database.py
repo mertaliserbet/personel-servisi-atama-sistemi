@@ -74,6 +74,24 @@ class DatabaseTestCase(unittest.TestCase):
         }
         self.assertTrue(expected_tables.issubset(set(inspect(self.engine).get_table_names())))
 
+    def test_existing_database_receives_shift_route_column(self) -> None:
+        legacy_engine = create_database_engine(
+            Path(self.temporary_directory.name) / "legacy.db"
+        )
+        try:
+            with legacy_engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE servis_vardiya (id INTEGER PRIMARY KEY)"
+                )
+            initialize_database(legacy_engine)
+            columns = {
+                column["name"]
+                for column in inspect(legacy_engine).get_columns("servis_vardiya")
+            }
+            self.assertIn("rota_adi", columns)
+        finally:
+            legacy_engine.dispose()
+
     def test_duplicate_personnel_number_is_rejected(self) -> None:
         with self.session_factory() as session:
             session.add(self.create_personnel())
