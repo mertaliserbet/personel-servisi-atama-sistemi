@@ -12,10 +12,13 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - Uygulama başlangıcında otomatik tablo oluşturma
 - Konsol ve dönen dosya logları
 - Veritabanı bütünlük testleri
+- Personel, servis kapasitesi ve servis güzergâhı sütun eşleştirme altyapısı
+- Arayüzden ve veritabanından bağımsız satır normalizasyonu ve doğrulaması
+- Normalizasyon ve doğrulama birim testleri
 
-Personel ve servis ekranları, Excel aktarımı, harita, atama algoritması, PyInstaller
-ve Inno Setup özellikleri henüz geliştirilmemiştir. Gerçek veya örnek personel/servis
-verisi otomatik eklenmez.
+Personel ve servis ekranları, Excel dosyası okuma ve içe aktarma arayüzü, harita,
+atama algoritması, PyInstaller ve Inno Setup özellikleri henüz geliştirilmemiştir.
+Gerçek veya örnek personel/servis verisi otomatik eklenmez.
 
 ## Gereksinimler
 
@@ -99,6 +102,7 @@ personel_servisi_atama_sistemi/
 |   |-- init_db.py
 |   |-- models/
 |   `-- repositories/
+|-- normalization/
 |-- tests/
 `-- ui/
 ```
