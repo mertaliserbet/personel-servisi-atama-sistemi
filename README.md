@@ -15,10 +15,14 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - Personel, servis kapasitesi ve servis güzergâhı sütun eşleştirme altyapısı
 - Arayüzden ve veritabanından bağımsız satır normalizasyonu ve doğrulaması
 - Normalizasyon ve doğrulama birim testleri
+- Excel çalışma kitabı ve dolu/boş sayfa okuma altyapısı
+- Dosya türü tahmini ve değiştirilebilir sütun eşleştirme planı
+- İş parçacığında çalışan doğrulama ve filtrelenebilir önizleme ekranı
 
-Personel ve servis ekranları, Excel dosyası okuma ve içe aktarma arayüzü, harita,
+Excel verilerini veritabanına kaydetme, personel ve servis yönetim ekranları, harita,
 atama algoritması, PyInstaller ve Inno Setup özellikleri henüz geliştirilmemiştir.
-Gerçek veya örnek personel/servis verisi otomatik eklenmez.
+Önizlenen Excel verileri yalnızca bellekte tutulur; gerçek veya örnek personel/servis
+verisi otomatik eklenmez.
 
 ## Gereksinimler
 
@@ -102,6 +106,7 @@ personel_servisi_atama_sistemi/
 |   |-- init_db.py
 |   |-- models/
 |   `-- repositories/
+|-- excel_import/
 |-- normalization/
 |-- tests/
 `-- ui/

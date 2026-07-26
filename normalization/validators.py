@@ -91,6 +91,34 @@ def _normalize_required_text(
     return normalized
 
 
+def _normalize_optional_text(
+    result: RowValidationResult,
+    field_name: str,
+    value: Any,
+    label: str,
+) -> str | None:
+    if is_blank(value):
+        result.normalized_data[field_name] = None
+        return None
+    return _normalize_required_text(result, field_name, value, label)
+
+
+def _normalize_optional_positive_integer(
+    result: RowValidationResult,
+    field_name: str,
+    value: Any,
+) -> int | None:
+    if is_blank(value):
+        result.normalized_data[field_name] = None
+        return None
+    return _normalize_with_error(
+        result,
+        field_name,
+        value,
+        normalize_positive_integer,
+    )
+
+
 def _normalize_coordinates(
     result: RowValidationResult,
     row: Mapping[str, Any],
@@ -229,7 +257,7 @@ def validate_service_capacity_row(
         canonical_row.get("KAPASITE"),
         normalize_positive_integer,
     )
-    _normalize_required_text(
+    _normalize_optional_text(
         result,
         "ROTA_ADI",
         canonical_row.get("ROTA_ADI"),
@@ -269,11 +297,10 @@ def validate_service_route_row(
         canonical_row.get("SERVIS_KODU"),
         normalize_service_code,
     )
-    _normalize_with_error(
+    _normalize_optional_positive_integer(
         result,
         "KAPASITE",
         canonical_row.get("KAPASITE"),
-        normalize_positive_integer,
     )
     _normalize_required_text(result, "MAHALLE", canonical_row.get("MAHALLE"), "Mahalle")
     _normalize_required_text(result, "ILCE", canonical_row.get("ILCE"), "İlçe")

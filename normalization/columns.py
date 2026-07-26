@@ -62,7 +62,23 @@ COLUMN_ALIASES: dict[RecordType, dict[str, set[str]]] = {
 
 
 REQUIRED_COLUMNS: dict[RecordType, set[str]] = {
-    record_type: set(profile) for record_type, profile in COLUMN_ALIASES.items()
+    RecordType.PERSONEL: {
+        "SICIL_NO",
+        "YAKA",
+        "ACIK_ADRES",
+        "IL",
+        "ILCE",
+        "MAHALLE",
+        "VARDIYA",
+        "STATU",
+    },
+    RecordType.SERVIS_KAPASITE: {
+        "SERVIS_KODU",
+        "KAPASITE",
+        "YAKA",
+        "VARDIYA",
+    },
+    RecordType.SERVIS_GUZERGAH: {"SERVIS_KODU", "MAHALLE", "ILCE"},
 }
 
 
