@@ -1,0 +1,149 @@
+"""Şoför, fiziksel servis, servis vardiyası ve güzergâh modelleri."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from database.models.base import ActiveMixin, Base, TimestampMixin
+from database.models.enums import VardiyaTuru, YakaTuru, enum_type
+
+if TYPE_CHECKING:
+    from database.models.atama import Atama
+
+
+class Sofor(ActiveMixin, TimestampMixin, Base):
+    __tablename__ = "sofor"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ad_soyad: Mapped[str] = mapped_column(String(200), nullable=False)
+    telefon: Mapped[str | None] = mapped_column(String(30))
+
+    servisler: Mapped[list[Servis]] = relationship(back_populates="sofor")
+
+
+class Servis(ActiveMixin, TimestampMixin, Base):
+    __tablename__ = "servis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    servis_kodu: Mapped[str] = mapped_column(String(30), nullable=False, unique=True, index=True)
+    rota_adi: Mapped[str | None] = mapped_column(String(300))
+    sofor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sofor.id", ondelete="SET NULL"),
+        index=True,
+    )
+
+    sofor: Mapped[Sofor | None] = relationship(back_populates="servisler")
+    vardiyalar: Mapped[list[ServisVardiyasi]] = relationship(
+        back_populates="servis",
+        cascade="all, delete-orphan",
+    )
+    guzergah_noktalari: Mapped[list[ServisGuzergahNoktasi]] = relationship(
+        back_populates="servis",
+        cascade="all, delete-orphan",
+        order_by="ServisGuzergahNoktasi.sira_no",
+    )
+    guzergah_geometrisi: Mapped[ServisGuzergahGeometrisi | None] = relationship(
+        back_populates="servis",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class ServisVardiyasi(ActiveMixin, TimestampMixin, Base):
+    __tablename__ = "servis_vardiya"
+    __table_args__ = (
+        UniqueConstraint(
+            "servis_id",
+            "vardiya_turu",
+            "yaka_turu",
+            name="servis_vardiya_yaka",
+        ),
+        CheckConstraint("kapasite > 0", name="pozitif_kapasite"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    servis_id: Mapped[int] = mapped_column(
+        ForeignKey("servis.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    vardiya_turu: Mapped[VardiyaTuru] = mapped_column(
+        enum_type(VardiyaTuru, "servis_vardiya_turu"),
+        nullable=False,
+    )
+    yaka_turu: Mapped[YakaTuru] = mapped_column(
+        enum_type(YakaTuru, "servis_vardiya_yaka_turu"),
+        nullable=False,
+    )
+    kapasite: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    servis: Mapped[Servis] = relationship(back_populates="vardiyalar")
+    atamalar: Mapped[list[Atama]] = relationship(back_populates="servis_vardiyasi")
+
+
+class ServisGuzergahNoktasi(ActiveMixin, TimestampMixin, Base):
+    __tablename__ = "servis_guzergah_noktasi"
+    __table_args__ = (
+        UniqueConstraint("servis_id", "sira_no", name="servis_sira_no"),
+        CheckConstraint("sira_no > 0", name="pozitif_sira_no"),
+        CheckConstraint("enlem BETWEEN -90 AND 90", name="enlem_araligi"),
+        CheckConstraint("boylam BETWEEN -180 AND 180", name="boylam_araligi"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    servis_id: Mapped[int] = mapped_column(
+        ForeignKey("servis.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sira_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    nokta_adi: Mapped[str] = mapped_column(String(300), nullable=False)
+    acik_adres: Mapped[str | None] = mapped_column(String(1000))
+    il: Mapped[str | None] = mapped_column(String(100))
+    ilce: Mapped[str | None] = mapped_column(String(100))
+    mahalle: Mapped[str | None] = mapped_column(String(200))
+    enlem: Mapped[float] = mapped_column(Float, nullable=False)
+    boylam: Mapped[float] = mapped_column(Float, nullable=False)
+    durak_mi: Mapped[bool] = mapped_column(nullable=False, default=False)
+
+    servis: Mapped[Servis] = relationship(back_populates="guzergah_noktalari")
+
+
+class ServisGuzergahGeometrisi(ActiveMixin, TimestampMixin, Base):
+    __tablename__ = "servis_guzergah_geometrisi"
+    __table_args__ = (
+        CheckConstraint(
+            "toplam_mesafe_metre >= 0",
+            name="negatif_olmayan_mesafe",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    servis_id: Mapped[int] = mapped_column(
+        ForeignKey("servis.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    geojson: Mapped[str] = mapped_column(Text, nullable=False)
+    toplam_mesafe_metre: Mapped[float] = mapped_column(Float, nullable=False)
+    hesaplanma_tarihi: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+    )
+
+    servis: Mapped[Servis] = relationship(back_populates="guzergah_geometrisi")

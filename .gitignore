@@ -1,0 +1,57 @@
+# Python sanal ortamları
+.venv/
+venv/
+env/
+
+# Python önbellek ve test çıktıları
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# Ortam değişkenleri ve yerel yapılandırmalar
+.env
+.env.*
+!.env.example
+*.local
+
+# Veritabanı, log ve yedekler
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.log
+*.bak
+*.backup
+data/
+logs/
+backups/
+
+# Kişisel veya kaynak veri dosyaları
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.pdf
+exports/
+
+# Paketleme ve kurulum çıktıları
+build/
+dist/
+installer/output/
+
+# Editör ve işletim sistemi dosyaları
+.vscode/
+.idea/
+.codex/
+.agents/
+.DS_Store
+Thumbs.db
+Desktop.ini
