@@ -12,6 +12,8 @@ from normalization.text import normalize_header
 COLUMN_ALIASES: dict[RecordType, dict[str, set[str]]] = {
     RecordType.PERSONEL: {
         "SICIL_NO": {"SICIL_NO", "SİCİL_NO", "YENİ SİCİL NO", "YENI SİCİL NO"},
+        "AD": {"AD", "ADI", "İSİM", "ISIM"},
+        "SOYAD": {"SOYAD", "SOYADI"},
         "YAKA": {
             "YAKA",
             "MAVİ YAKA BEYAZ YAKA",
@@ -36,6 +38,14 @@ COLUMN_ALIASES: dict[RecordType, dict[str, set[str]]] = {
             "STAJ_BITIS",
             "STAJ BİTİŞ TARİHİ",
             "STAJ BITIS TARIHI",
+        },
+        "AKTIF_MI": {
+            "AKTIF_MI",
+            "AKTİF_Mİ",
+            "AKTIF MI",
+            "AKTİF Mİ",
+            "AKTIF",
+            "AKTİF",
         },
     },
     RecordType.SERVIS_KAPASITE: {

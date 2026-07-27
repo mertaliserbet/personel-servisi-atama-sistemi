@@ -30,6 +30,8 @@ from ui.excel_import_widget import ExcelImportWidget
 
 PERSONNEL_HEADERS = [
     "YENİ SİCİL NO",
+    "AD",
+    "SOYAD",
     "MAVİ YAKA BEYAZ YAKA",
     "ADRES (OTURDUĞU)",
     "İL",
@@ -41,6 +43,7 @@ PERSONNEL_HEADERS = [
     "STATÜ",
     "STAJ BAŞLAMA TARİHİ",
     "STAJ BİTİŞ TARİHİ",
+    "AKTİF Mİ",
 ]
 
 SERVICE_CAPACITY_HEADERS = [
@@ -65,9 +68,14 @@ def personnel_values(
     personnel_number: object = "1001",
     latitude: object = 36.8,
     longitude: object = 34.6,
+    first_name: object = "Ayşe",
+    last_name: object = "Yılmaz",
+    active: object = True,
 ) -> list[object]:
     return [
         personnel_number,
+        first_name,
+        last_name,
         "MAVİ YAKA",
         "  Atatürk   Cad. No: 1  ",
         "MERSİN",
@@ -79,6 +87,7 @@ def personnel_values(
         "KADROLU ",
         None,
         None,
+        active,
     ]
 
 
@@ -110,6 +119,14 @@ class ExcelImportTestCase(unittest.TestCase):
 
     def test_personnel_file_is_detected(self) -> None:
         detection = detect_record_type(PERSONNEL_HEADERS)
+        self.assertTrue(detection.is_confident)
+        self.assertEqual(detection.recommended_type, RecordType.PERSONEL)
+
+    def test_personnel_file_without_name_columns_is_detected(self) -> None:
+        headers = [
+            header for header in PERSONNEL_HEADERS if header not in {"AD", "SOYAD"}
+        ]
+        detection = detect_record_type(headers)
         self.assertTrue(detection.is_confident)
         self.assertEqual(detection.recommended_type, RecordType.PERSONEL)
 
@@ -287,6 +304,41 @@ class ExcelImportTestCase(unittest.TestCase):
         self.assertTrue(mapping.is_valid)
         self.assertEqual(mapping.entries[0].target_field, "SICIL_NO")
         self.assertTrue(mapping.entries[0].is_manual)
+
+    def test_personnel_import_button_is_enabled_for_valid_personnel_report(self) -> None:
+        path = self._write_workbook(
+            "personnel-button.xlsx",
+            {"Personel": [PERSONNEL_HEADERS, personnel_values()]},
+        )
+        report = analyze_workbook(path, "Personel", RecordType.PERSONEL)
+        application = QApplication.instance() or QApplication([])
+        widget = ExcelImportWidget()
+        try:
+            widget._analysis_ready(report)
+            self.assertTrue(widget.import_personnel_button.isEnabled())
+            self.assertFalse(widget.import_capacity_button.isEnabled())
+        finally:
+            widget.close()
+        self.assertIsNotNone(application)
+
+    def test_second_personnel_import_click_is_ignored(self) -> None:
+        path = self._write_workbook(
+            "personnel-double-click.xlsx",
+            {"Personel": [PERSONNEL_HEADERS, personnel_values()]},
+        )
+        report = analyze_workbook(path, "Personel", RecordType.PERSONEL)
+        application = QApplication.instance() or QApplication([])
+        widget = ExcelImportWidget()
+        calls: list[object] = []
+        try:
+            widget._analysis_ready(report)
+            widget._run_async = lambda *args, **kwargs: calls.append((args, kwargs))
+            widget._prepare_personnel_import()
+            widget._prepare_personnel_import()
+            self.assertEqual(len(calls), 1)
+        finally:
+            widget.close()
+        self.assertIsNotNone(application)
 
 
 if __name__ == "__main__":

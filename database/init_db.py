@@ -29,6 +29,28 @@ def _apply_compatibility_migrations(database_engine: Engine) -> None:
             )
         logger.info("Veritabanı uyumluluk güncellemesi uygulandı: servis_vardiya.rota_adi")
 
+    inspector = inspect(database_engine)
+    if "personel" not in inspector.get_table_names():
+        return
+    personnel_columns = {
+        column["name"] for column in inspector.get_columns("personel")
+    }
+    missing_name_columns = [
+        column_name
+        for column_name in ("ad", "soyad")
+        if column_name not in personnel_columns
+    ]
+    if missing_name_columns:
+        with database_engine.begin() as connection:
+            for column_name in missing_name_columns:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE personel ADD COLUMN {column_name} VARCHAR(100)"
+                )
+        logger.info(
+            "Veritabanı uyumluluk güncellemesi uygulandı: personel.%s",
+            ", personel.".join(missing_name_columns),
+        )
+
 
 def initialize_database(database_engine: Engine = engine) -> None:
     """Tanımlı tüm SQLAlchemy tablolarını yoksa oluşturur."""

@@ -100,6 +100,37 @@ def normalize_status(value: Any) -> str:
     return normalized
 
 
+def normalize_active_status(value: Any) -> bool:
+    if is_blank(value):
+        return True
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    normalized = comparison_key(value)
+    aliases = {
+        "1": True,
+        "EVET": True,
+        "AKTİF": True,
+        "AKTIF": True,
+        "TRUE": True,
+        "0": False,
+        "HAYIR": False,
+        "PASİF": False,
+        "PASIF": False,
+        "FALSE": False,
+    }
+    if normalized not in aliases:
+        raise ValueNormalizationError(
+            "INVALID_ACTIVE_STATUS",
+            f"Tanınmayan aktiflik değeri: {normalize_text(value)}",
+        )
+    return aliases[normalized]
+
+
 def normalize_personnel_number(value: Any) -> str:
     if is_blank(value):
         raise ValueNormalizationError("REQUIRED", "Sicil numarası boş olamaz.")

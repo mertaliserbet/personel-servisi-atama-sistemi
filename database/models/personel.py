@@ -30,6 +30,8 @@ class Personel(ActiveMixin, TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     sicil_no: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    ad: Mapped[str | None] = mapped_column(String(100))
+    soyad: Mapped[str | None] = mapped_column(String(100))
     ad_soyad: Mapped[str | None] = mapped_column(String(200))
     acik_adres: Mapped[str] = mapped_column(String(1000), nullable=False)
     il: Mapped[str | None] = mapped_column(String(100))

@@ -20,10 +20,11 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - İş parçacığında çalışan doğrulama ve filtrelenebilir önizleme ekranı
 - Servis kapasite kayıtları için aktarım öncesi özet ve çakışma seçimi
 - Transaction ile yeni fiziksel servis/servis vardiyası ekleme ve kontrollü güncelleme
+- Sicil numarası bazlı kontrollü personel ekleme ve profil güncelleme
 
-Yalnızca doğrulanmış Servis Kapasite Excel kayıtları kullanıcı onayıyla veritabanına
-aktarılabilir. Personel ve servis güzergâhı Excel aktarımı, yönetim ekranları, harita,
-atama algoritması, PyInstaller ve Inno Setup özellikleri henüz geliştirilmemiştir.
+Doğrulanmış Servis Kapasite ve Personel Excel kayıtları kullanıcı onayıyla
+veritabanına aktarılabilir. Servis güzergâhı Excel aktarımı, yönetim ekranları,
+harita, atama algoritması, PyInstaller ve Inno Setup özellikleri henüz geliştirilmemiştir.
 
 ## Gereksinimler
 
@@ -69,6 +70,15 @@ Aktar` butonunu kullanın. Aktarım öncesi özet penceresi yeni servisleri, yen
 kayıtlarını, çakışmaları, hataları ve uyarıları gösterir. Çakışmalarda varsayılan
 seçenek mevcut kaydı koruyup Excel satırını atlamaktır; istenirse kapasite, rota adı
 ve aktiflik bilgileri güncellenebilir. Aktarım tek transaction içinde yürütülür.
+
+## Personel aktarımı
+
+Personel dosyasında `SICIL_NO`, adres, vardiya ve yaka alanları doğrulandıktan sonra
+`Geçerli Personel Kayıtlarını Aktar` butonu kullanılabilir. `AD` veya `SOYAD` boşsa
+kayıt reddedilmez; uyarılı sayılır ve kullanıcı onayıyla sicil numarası üzerinden aktarılır.
+Sicil çakışmasında varsayılan davranış mevcut personeli koruyup satırı atlamaktır;
+istenirse iç kimlik ve sicil korunarak profil bilgileri güncellenebilir. Bu işlem
+personeli bir servise atamaz ve atama tablosuna kayıt yazmaz.
 
 ## Testleri çalıştırma
 

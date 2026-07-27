@@ -42,11 +42,15 @@ from normalization.columns import COLUMN_ALIASES
 from normalization.result import RecordType
 from services import (
     ConflictBehavior,
+    PersonnelImportPlan,
+    PersonnelImportResult,
+    PersonnelImportService,
     ServiceCapacityImportPlan,
     ServiceCapacityImportResult,
     ServiceCapacityImportService,
 )
 from ui.column_mapping_dialog import ColumnMappingDialog
+from ui.personnel_import_dialog import PersonnelImportDialog
 from ui.service_capacity_import_dialog import ServiceCapacityImportDialog
 from ui.workers import FunctionWorker
 
@@ -101,10 +105,14 @@ class ExcelImportWidget(QWidget):
         self.import_capacity_button = QPushButton(
             "Geçerli Servis Kayıtlarını Aktar"
         )
+        self.import_personnel_button = QPushButton(
+            "Geçerli Personel Kayıtlarını Aktar"
+        )
         self.clear_button = QPushButton("Temizle")
         button_layout.addWidget(self.analyze_button)
         button_layout.addWidget(self.mapping_button)
         button_layout.addWidget(self.import_capacity_button)
+        button_layout.addWidget(self.import_personnel_button)
         button_layout.addStretch()
         button_layout.addWidget(self.clear_button)
         source_layout.addLayout(button_layout, 2, 0, 1, 4)
@@ -172,6 +180,7 @@ class ExcelImportWidget(QWidget):
         self.analyze_button.clicked.connect(self._analyze)
         self.mapping_button.clicked.connect(self._edit_mapping)
         self.import_capacity_button.clicked.connect(self._prepare_capacity_import)
+        self.import_personnel_button.clicked.connect(self._prepare_personnel_import)
         self.clear_button.clicked.connect(self.clear)
         self.sheet_combo.currentIndexChanged.connect(self._sheet_changed)
         self.file_type_combo.currentIndexChanged.connect(self._file_type_changed)
@@ -187,6 +196,9 @@ class ExcelImportWidget(QWidget):
         )
         self.import_capacity_button.setEnabled(
             not busy and self._capacity_import_available()
+        )
+        self.import_personnel_button.setEnabled(
+            not busy and self._personnel_import_available()
         )
 
     def _run_async(self, function, on_result, on_error=None) -> None:
@@ -311,6 +323,16 @@ class ExcelImportWidget(QWidget):
         self.mapping_summary.setPlainText(self._mapping_text(report))
         self._populate_preview()
         self.import_capacity_button.setEnabled(self._capacity_import_available())
+        self.import_personnel_button.setEnabled(self._personnel_import_available())
+
+    def _personnel_import_available(self) -> bool:
+        return bool(
+            self._report is not None
+            and self._report.record_type is RecordType.PERSONEL
+            and any(row.validation.is_valid for row in self._report.rows)
+            and not self._import_in_progress
+            and not self._report_imported
+        )
 
     def _capacity_import_available(self) -> bool:
         return bool(
@@ -385,6 +407,67 @@ class ExcelImportWidget(QWidget):
         self._import_in_progress = False
         self._set_busy(bool(self._workers))
         QMessageBox.critical(self, "Servis Kapasite Aktarım Hatası", message)
+
+    def _prepare_personnel_import(self) -> None:
+        if self._import_in_progress or not self._personnel_import_available():
+            return
+        report = self._report
+        if report is None:
+            return
+        self._import_in_progress = True
+        self._run_async(
+            lambda: PersonnelImportService().preview_import(
+                report,
+                ConflictBehavior.SKIP,
+                include_warning_rows=True,
+            ),
+            self._show_personnel_import_confirmation,
+            self._show_personnel_import_error,
+        )
+
+    def _show_personnel_import_confirmation(
+        self,
+        plan: PersonnelImportPlan,
+    ) -> None:
+        dialog = PersonnelImportDialog(plan, self)
+        if not dialog.exec():
+            self._import_in_progress = False
+            self._set_busy(bool(self._workers))
+            return
+        report = self._report
+        if report is None:
+            self._import_in_progress = False
+            return
+        behavior = dialog.conflict_behavior()
+        self._run_async(
+            lambda: PersonnelImportService().import_report(
+                report,
+                behavior,
+                include_warning_rows=True,
+            ),
+            self._personnel_import_completed,
+            self._show_personnel_import_error,
+        )
+
+    def _personnel_import_completed(self, result: PersonnelImportResult) -> None:
+        self._import_in_progress = False
+        self._report_imported = True
+        self.import_personnel_button.setEnabled(False)
+        QMessageBox.information(
+            self,
+            "Personel Aktarımı",
+            "Personel aktarımı tamamlandı.\n\n"
+            f"Eklenen personel: {result.added_count}\n"
+            f"Güncellenen personel: {result.updated_count}\n"
+            f"Atlanan kayıt: {result.skipped_count}\n"
+            f"Hatalı kayıt: {result.invalid_count}\n"
+            f"Onayla aktarılan uyarılı kayıt: {result.imported_warning_count}",
+        )
+
+    def _show_personnel_import_error(self, message: str) -> None:
+        self._import_in_progress = False
+        self._set_busy(bool(self._workers))
+        QMessageBox.critical(self, "Personel Aktarım Hatası", message)
 
     def _detection_text(self, detection) -> str:
         lines = ["Otomatik dosya türü puanları:"]
@@ -550,6 +633,7 @@ class ExcelImportWidget(QWidget):
         self.analyze_button.setEnabled(False)
         self.mapping_button.setEnabled(False)
         self.import_capacity_button.setEnabled(False)
+        self.import_personnel_button.setEnabled(False)
 
     def clear(self, *, keep_path: bool = False) -> None:
         self._workbook_info = None

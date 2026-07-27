@@ -45,7 +45,9 @@ class DatabaseTestCase(unittest.TestCase):
     def create_personnel(personnel_number: str = "P000001") -> Personel:
         return Personel(
             sicil_no=personnel_number,
-            ad_soyad=None,
+            ad="Ayşe",
+            soyad="Yılmaz",
+            ad_soyad="Ayşe Yılmaz",
             acik_adres="Test adresi",
             il="MERSİN",
             ilce="TARSUS",
@@ -89,6 +91,24 @@ class DatabaseTestCase(unittest.TestCase):
                 for column in inspect(legacy_engine).get_columns("servis_vardiya")
             }
             self.assertIn("rota_adi", columns)
+        finally:
+            legacy_engine.dispose()
+
+    def test_existing_database_receives_person_name_columns(self) -> None:
+        legacy_engine = create_database_engine(
+            Path(self.temporary_directory.name) / "legacy_personnel.db"
+        )
+        try:
+            with legacy_engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE personel (id INTEGER PRIMARY KEY)"
+                )
+            initialize_database(legacy_engine)
+            columns = {
+                column["name"]
+                for column in inspect(legacy_engine).get_columns("personel")
+            }
+            self.assertTrue({"ad", "soyad"}.issubset(columns))
         finally:
             legacy_engine.dispose()
 

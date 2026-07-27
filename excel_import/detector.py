@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from excel_import.models import FileTypeDetection
-from normalization.columns import COLUMN_ALIASES, REQUIRED_COLUMNS, map_column_name
+from normalization.columns import REQUIRED_COLUMNS, map_column_name
 from normalization.result import RecordType
 
 
@@ -21,10 +21,10 @@ def detect_record_type(headers: Iterable[Any]) -> FileTypeDetection:
             for header in header_list
             if (target := map_column_name(header, record_type)) is not None
         }
-        expected = set(COLUMN_ALIASES[record_type])
         required = REQUIRED_COLUMNS[record_type]
-        scores[record_type] = len(matched) / len(expected)
-        required_ratios[record_type] = len(matched & required) / len(required)
+        required_ratio = len(matched & required) / len(required)
+        scores[record_type] = required_ratio
+        required_ratios[record_type] = required_ratio
 
     ranked = sorted(scores, key=scores.get, reverse=True)
     best = ranked[0]

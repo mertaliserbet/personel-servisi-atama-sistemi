@@ -24,6 +24,8 @@ from normalization.text import normalize_header
 def valid_personnel_row() -> dict[str, object]:
     return {
         "YENİ SİCİL NO": "P000001",
+        "AD": "Ayşe",
+        "SOYAD": "Yılmaz",
         "MAVİ YAKA\nBEYAZ YAKA": "MAVİ YAKA",
         "ADRES (OTURDUĞU)": "  Test   Mah.  No: 1  ",
         "İL ": "MERSİN ",
@@ -115,6 +117,19 @@ class RowValidationTests(unittest.TestCase):
         self.assertFalse(result.is_valid)
         self.assertTrue(
             any(error.code == "REQUIRED" and error.field == "SICIL_NO" for error in result.errors)
+        )
+
+    def test_missing_names_are_warnings_not_errors(self) -> None:
+        row = valid_personnel_row()
+        row["AD"] = None
+        row["SOYAD"] = " "
+        result = validate_personnel_row(2, row)
+        self.assertTrue(result.is_valid)
+        self.assertEqual(result.normalized_data["AD"], None)
+        self.assertEqual(result.normalized_data["SOYAD"], None)
+        warning_codes = {warning.code for warning in result.warnings}
+        self.assertTrue(
+            {"MISSING_FIRST_NAME", "MISSING_LAST_NAME"}.issubset(warning_codes)
         )
 
     def test_invalid_coordinate_is_an_error(self) -> None:

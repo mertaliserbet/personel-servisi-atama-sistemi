@@ -15,6 +15,7 @@ from normalization.text import (
 )
 from normalization.values import (
     ValueNormalizationError,
+    normalize_active_status,
     normalize_collar,
     normalize_coordinate,
     normalize_date,
@@ -160,6 +161,30 @@ def validate_personnel_row(
         canonical_row.get("SICIL_NO"),
         normalize_personnel_number,
     )
+    first_name = _normalize_optional_text(
+        result,
+        "AD",
+        canonical_row.get("AD"),
+        "Ad",
+    )
+    if first_name is None:
+        result.add_warning(
+            "MISSING_FIRST_NAME",
+            "Ad bilgisi boş; personel sicil numarasıyla aktarılabilir.",
+            "AD",
+        )
+    last_name = _normalize_optional_text(
+        result,
+        "SOYAD",
+        canonical_row.get("SOYAD"),
+        "Soyad",
+    )
+    if last_name is None:
+        result.add_warning(
+            "MISSING_LAST_NAME",
+            "Soyad bilgisi boş; personel sicil numarasıyla aktarılabilir.",
+            "SOYAD",
+        )
     _normalize_with_error(
         result,
         "YAKA",
@@ -188,6 +213,12 @@ def validate_personnel_row(
         "STATU",
         canonical_row.get("STATU"),
         normalize_status,
+    )
+    _normalize_with_error(
+        result,
+        "AKTIF_MI",
+        canonical_row.get("AKTIF_MI"),
+        normalize_active_status,
     )
 
     start_date = _normalize_with_error(

@@ -14,6 +14,7 @@ from normalization.validators import (
 )
 from normalization.values import (
     ValueNormalizationError,
+    normalize_active_status,
     normalize_collar,
     normalize_coordinate,
     normalize_date,
@@ -32,6 +33,7 @@ __all__ = [
     "map_column_name",
     "map_columns",
     "normalize_collar",
+    "normalize_active_status",
     "normalize_coordinate",
     "normalize_date",
     "normalize_personnel_number",
