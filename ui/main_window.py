@@ -5,10 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
 from app.constants import APPLICATION_DISPLAY_NAME
 from ui.excel_import_widget import ExcelImportWidget
+from ui.personnel_management_widget import PersonnelManagementWidget
 
 
 class MainWindow(QMainWindow):
@@ -33,8 +34,12 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 24px; font-weight: 600;")
 
+        tabs = QTabWidget(central_widget)
+        tabs.addTab(ExcelImportWidget(tabs), "Excel Aktarımı")
+        tabs.addTab(PersonnelManagementWidget(tabs), "Personel Yönetimi")
+
         layout.addWidget(title)
-        layout.addWidget(ExcelImportWidget(central_widget), 1)
+        layout.addWidget(tabs, 1)
 
         self.setCentralWidget(central_widget)
         self.statusBar().showMessage("Hazır")

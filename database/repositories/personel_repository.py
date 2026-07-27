@@ -24,3 +24,27 @@ class PersonelRepository(BaseRepository[Personel]):
             return []
         statement = select(Personel).where(Personel.sicil_no.in_(sicil_numbers))
         return list(self.session.scalars(statement))
+
+    def list_ordered(self, *, include_inactive: bool = True) -> list[Personel]:
+        statement = select(Personel)
+        if not include_inactive:
+            statement = statement.where(Personel.aktif_mi.is_(True))
+        statement = statement.order_by(Personel.sicil_no)
+        return list(self.session.scalars(statement))
+
+    def search_by_sicil_no(
+        self,
+        search_text: str,
+        *,
+        include_inactive: bool = True,
+    ) -> list[Personel]:
+        normalized_search = search_text.strip()
+        if not normalized_search:
+            return self.list_ordered(include_inactive=include_inactive)
+        statement = select(Personel).where(
+            Personel.sicil_no.contains(normalized_search, autoescape=True)
+        )
+        if not include_inactive:
+            statement = statement.where(Personel.aktif_mi.is_(True))
+        statement = statement.order_by(Personel.sicil_no)
+        return list(self.session.scalars(statement))

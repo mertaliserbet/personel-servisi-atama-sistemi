@@ -21,6 +21,7 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - Servis kapasite kayıtları için aktarım öncesi özet ve çakışma seçimi
 - Transaction ile yeni fiziksel servis/servis vardiyası ekleme ve kontrollü güncelleme
 - Sicil numarası bazlı kontrollü personel ekleme ve profil güncelleme
+- Personel listeleme, sicil arama, manuel kayıt, güncelleme ve aktif/pasif yönetimi
 
 Doğrulanmış Servis Kapasite ve Personel Excel kayıtları kullanıcı onayıyla
 veritabanına aktarılabilir. Servis güzergâhı Excel aktarımı, yönetim ekranları,
@@ -79,6 +80,21 @@ kayıt reddedilmez; uyarılı sayılır ve kullanıcı onayıyla sicil numarası
 Sicil çakışmasında varsayılan davranış mevcut personeli koruyup satırı atlamaktır;
 istenirse iç kimlik ve sicil korunarak profil bilgileri güncellenebilir. Bu işlem
 personeli bir servise atamaz ve atama tablosuna kayıt yazmaz.
+
+## Personel yönetimi
+
+`Personel Yönetimi` sekmesinde tüm personeller listelenebilir ve sicil numarasıyla
+aranabilir. Yeni kayıtta sicil numarası zorunlu ve benzersizdir. Ad veya soyad boşsa
+kullanıcı onayı isteyen bir uyarı gösterilir; onay verilirse kayıt yapılabilir. Mevcut
+personelin sicil numarası ve veritabanı kimliği korunarak desteklenen profil bilgileri
+güncellenebilir veya personel silinmeden aktif/pasif duruma alınabilir. Servis atamasını
+etkileyebilecek alanlar değişirse yalnızca yeniden değerlendirme uyarısı gösterilir;
+mevcut atama değiştirilmez.
+
+Manuel kayıtta statü `KADROLU` veya `STAJYER` olarak seçilebilir. Staj başlangıç ve
+bitiş tarihi alanları yalnızca `STAJYER` seçildiğinde gösterilir ve iki tarih de zorunlu
+olur. Manuel oluşturulan kayıtların aktarım grubu kullanıcıya sorulmadan sistem
+tarafından `MANUEL` olarak belirlenir.
 
 ## Testleri çalıştırma
 
