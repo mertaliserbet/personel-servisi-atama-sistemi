@@ -63,10 +63,18 @@ COLUMN_ALIASES: dict[RecordType, dict[str, set[str]]] = {
     RecordType.SERVIS_GUZERGAH: {
         "SERVIS_KODU": {"SERVIS_KODU", "SERVİS KODU", "SERVIS KODU"},
         "KAPASITE": {"KAPASITE", "KAPASİTE", "ARAÇ KAPASİTESİ", "ARAC KAPASITESI"},
+        "SIRA_NO": {"SIRA_NO", "SIRA NO", "SIRA", "SIRA NUMARASI"},
+        "IL": {"IL", "İL"},
         "MAHALLE": {"MAHALLE"},
         "ILCE": {"ILCE", "İLÇE"},
+        "NOKTA_ADI": {"NOKTA_ADI", "NOKTA ADI", "DURAK", "DURAK ADI"},
+        "ACIK_ADRES": {"ACIK_ADRES", "AÇIK ADRES", "ADRES"},
+        "ACIKLAMA": {"ACIKLAMA", "AÇIKLAMA"},
         "ENLEM": {"ENLEM"},
         "BOYLAM": {"BOYLAM"},
+        "VARDIYA": {"VARDIYA", "VARDİYA", "VARDİYA TÜRÜ", "VARDIYA TURU"},
+        "YAKA": {"YAKA", "YAKA TÜRÜ", "YAKA TURU"},
+        "AKTIF_MI": {"AKTIF_MI", "AKTİF Mİ", "AKTIF", "AKTİF"},
     },
 }
 

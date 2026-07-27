@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -161,6 +163,40 @@ class ExcelImportTestCase(unittest.TestCase):
         self.assertTrue(info.sheets[0].is_empty)
         self.assertFalse(info.sheets[1].is_empty)
         self.assertEqual([sheet.name for sheet in info.non_empty_sheets], ["Personel"])
+
+    def test_dimensionless_worksheet_is_read_in_read_only_mode(self) -> None:
+        source = self._write_workbook(
+            "dimension-source.xlsx",
+            {
+                "Güzergah": [
+                    SERVICE_ROUTE_HEADERS,
+                    ["S_001", 29, "ÇİFTLİK", "YENİŞEHİR", None, None],
+                ],
+                "Boş": [],
+            },
+        )
+        target = self.directory / "dimensionless.xlsx"
+        with ZipFile(source, "r") as input_archive, ZipFile(
+            target,
+            "w",
+            compression=ZIP_DEFLATED,
+        ) as output_archive:
+            for entry in input_archive.infolist():
+                payload = input_archive.read(entry.filename)
+                if entry.filename.startswith("xl/worksheets/sheet"):
+                    payload = re.sub(rb"<dimension[^>]*/>", b"", payload, count=1)
+                output_archive.writestr(entry, payload)
+
+        info = inspect_workbook(target)
+        report = analyze_workbook(
+            target,
+            "Güzergah",
+            RecordType.SERVIS_GUZERGAH,
+        )
+        self.assertEqual(info.non_empty_sheets[0].headers, tuple(SERVICE_ROUTE_HEADERS))
+        self.assertTrue(info.sheets[1].is_empty)
+        self.assertEqual(report.total_count, 1)
+        self.assertTrue(report.rows[0].validation.is_valid)
 
     def test_missing_required_columns_are_reported(self) -> None:
         mapping = build_column_mapping(
@@ -317,6 +353,28 @@ class ExcelImportTestCase(unittest.TestCase):
             widget._analysis_ready(report)
             self.assertTrue(widget.import_personnel_button.isEnabled())
             self.assertFalse(widget.import_capacity_button.isEnabled())
+        finally:
+            widget.close()
+        self.assertIsNotNone(application)
+
+    def test_route_import_button_is_enabled_only_for_valid_route_report(self) -> None:
+        path = self._write_workbook(
+            "route-button.xlsx",
+            {
+                "Güzergah": [
+                    SERVICE_ROUTE_HEADERS,
+                    ["S_001", 29, "ÇİFTLİK", "YENİŞEHİR", None, None],
+                ]
+            },
+        )
+        report = analyze_workbook(path, "Güzergah", RecordType.SERVIS_GUZERGAH)
+        application = QApplication.instance() or QApplication([])
+        widget = ExcelImportWidget()
+        try:
+            widget._analysis_ready(report)
+            self.assertTrue(widget.import_route_button.isEnabled())
+            self.assertFalse(widget.import_capacity_button.isEnabled())
+            self.assertFalse(widget.import_personnel_button.isEnabled())
         finally:
             widget.close()
         self.assertIsNotNone(application)

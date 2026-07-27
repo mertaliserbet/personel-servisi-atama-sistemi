@@ -205,7 +205,7 @@ class RowValidationTests(unittest.TestCase):
         self.assertEqual(result.normalized_data["IL"], "KOACELİ")
         self.assertIn("SUSPICIOUS_CITY", {warning.code for warning in result.warnings})
 
-    def test_route_row_accepts_blank_coordinates_with_warning(self) -> None:
+    def test_route_row_accepts_blank_coordinates_without_warning(self) -> None:
         result = validate_service_route_row(
             2,
             {
@@ -218,7 +218,24 @@ class RowValidationTests(unittest.TestCase):
             },
         )
         self.assertTrue(result.is_valid)
-        self.assertIn("MISSING_COORDINATES", {warning.code for warning in result.warnings})
+        self.assertFalse(result.warnings)
+
+    def test_route_row_rejects_incomplete_coordinates(self) -> None:
+        result = validate_service_route_row(
+            2,
+            {
+                "SERVIS KODU": "S_016",
+                "MAHALLE": "ÇİFTLİK MAHALLESİ",
+                "İLÇE": "YENİŞEHİR",
+                "ENLEM": 36.8,
+                "BOYLAM": None,
+            },
+        )
+        self.assertFalse(result.is_valid)
+        self.assertIn(
+            "INCOMPLETE_COORDINATES",
+            {error.code for error in result.errors},
+        )
 
     def test_excel_serial_internship_dates_are_converted_to_date(self) -> None:
         row = valid_personnel_row()

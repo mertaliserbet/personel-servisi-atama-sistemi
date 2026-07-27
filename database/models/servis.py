@@ -53,11 +53,6 @@ class Servis(ActiveMixin, TimestampMixin, Base):
         back_populates="servis",
         cascade="all, delete-orphan",
     )
-    guzergah_noktalari: Mapped[list[ServisGuzergahNoktasi]] = relationship(
-        back_populates="servis",
-        cascade="all, delete-orphan",
-        order_by="ServisGuzergahNoktasi.sira_no",
-    )
     guzergah_geometrisi: Mapped[ServisGuzergahGeometrisi | None] = relationship(
         back_populates="servis",
         cascade="all, delete-orphan",
@@ -96,34 +91,56 @@ class ServisVardiyasi(ActiveMixin, TimestampMixin, Base):
 
     servis: Mapped[Servis] = relationship(back_populates="vardiyalar")
     atamalar: Mapped[list[Atama]] = relationship(back_populates="servis_vardiyasi")
+    guzergah_noktalari: Mapped[list[ServisGuzergahNoktasi]] = relationship(
+        back_populates="servis_vardiyasi",
+        cascade="all, delete-orphan",
+        order_by="ServisGuzergahNoktasi.sira_no",
+    )
 
 
 class ServisGuzergahNoktasi(ActiveMixin, TimestampMixin, Base):
     __tablename__ = "servis_guzergah_noktasi"
     __table_args__ = (
-        UniqueConstraint("servis_id", "sira_no", name="servis_sira_no"),
+        UniqueConstraint(
+            "servis_vardiya_id",
+            "sira_no",
+            name="servis_vardiya_sira_no",
+        ),
         CheckConstraint("sira_no > 0", name="pozitif_sira_no"),
-        CheckConstraint("enlem BETWEEN -90 AND 90", name="enlem_araligi"),
-        CheckConstraint("boylam BETWEEN -180 AND 180", name="boylam_araligi"),
+        CheckConstraint(
+            "enlem IS NULL OR enlem BETWEEN -90 AND 90",
+            name="enlem_araligi",
+        ),
+        CheckConstraint(
+            "boylam IS NULL OR boylam BETWEEN -180 AND 180",
+            name="boylam_araligi",
+        ),
+        CheckConstraint(
+            "ilce IS NOT NULL OR mahalle IS NOT NULL OR nokta_adi IS NOT NULL",
+            name="konum_tanimi_zorunlu",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    servis_id: Mapped[int] = mapped_column(
-        ForeignKey("servis.id", ondelete="CASCADE"),
+    servis_vardiya_id: Mapped[int] = mapped_column(
+        ForeignKey("servis_vardiya.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     sira_no: Mapped[int] = mapped_column(Integer, nullable=False)
-    nokta_adi: Mapped[str] = mapped_column(String(300), nullable=False)
+    nokta_adi: Mapped[str | None] = mapped_column(String(300))
     acik_adres: Mapped[str | None] = mapped_column(String(1000))
+    aciklama: Mapped[str | None] = mapped_column(Text)
     il: Mapped[str | None] = mapped_column(String(100))
     ilce: Mapped[str | None] = mapped_column(String(100))
     mahalle: Mapped[str | None] = mapped_column(String(200))
-    enlem: Mapped[float] = mapped_column(Float, nullable=False)
-    boylam: Mapped[float] = mapped_column(Float, nullable=False)
+    enlem: Mapped[float | None] = mapped_column(Float)
+    boylam: Mapped[float | None] = mapped_column(Float)
     durak_mi: Mapped[bool] = mapped_column(nullable=False, default=False)
 
-    servis: Mapped[Servis] = relationship(back_populates="guzergah_noktalari")
+    servis_vardiyasi: Mapped[ServisVardiyasi] = relationship(
+        back_populates="guzergah_noktalari"
+    )
 
 
 class ServisGuzergahGeometrisi(ActiveMixin, TimestampMixin, Base):

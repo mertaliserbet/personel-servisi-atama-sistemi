@@ -25,11 +25,14 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - Fiziksel servis listeleme, servis kodu arama, manuel kayıt ve aktif/pasif yönetimi
 - Servis-vardiya listeleme, ekleme, güncelleme ve doluluk korumalı kapasite yönetimi
 - Şoför listeleme, ekleme, güncelleme, aktif/pasif ve servis ilişkilendirme işlemleri
+- Servis-vardiya bazlı sıralı güzergâh noktası yönetimi ve aktif/pasif işlemleri
+- Güvenli servis-vardiya eşleştirmeli, tekrar çalıştırılabilir güzergâh Excel aktarımı
 
 Doğrulanmış Servis Kapasite ve Personel Excel kayıtları kullanıcı onayıyla
 veritabanına aktarılabilir. Personel, fiziksel servis, servis-vardiya ve şoför kayıtları
-uygulama içinden yönetilebilir. Servis güzergâhı Excel aktarımı, harita, otomatik atama
-algoritması, raporlama, PyInstaller ve Inno Setup özellikleri henüz geliştirilmemiştir.
+uygulama içinden yönetilebilir. Servis güzergâhı Excel aktarımı da desteklenir. Harita,
+otomatik atama algoritması, raporlama, PyInstaller ve Inno Setup özellikleri henüz
+geliştirilmemiştir.
 
 ## Gereksinimler
 
@@ -102,7 +105,7 @@ tarafından `MANUEL` olarak belirlenir.
 
 ## Servis, vardiya ve şoför yönetimi
 
-`Servis Yönetimi` sekmesi üç ayrı bölümden oluşur:
+`Servis Yönetimi` sekmesi dört ayrı bölümden oluşur:
 
 - `Fiziksel Servisler`: Servis koduyla arama, yeni servis ekleme, şoför seçme ve
   aktif/pasif yönetimi sağlar. Servis kodu benzersizdir ve kayıt güncellenirken korunur.
@@ -114,9 +117,26 @@ tarafından `MANUEL` olarak belirlenir.
 - `Şoförler`: Ad, soyad, telefon, aktiflik ve fiziksel servis ilişkilerini yönetir. Kayıtlar
   silinmez; aktif/pasif yapılır. Aynı şoföre aynı vardiyada birden fazla aktif fiziksel
   servis görevi verilmesi engellenir.
+- `Güzergâhlar`: Önce fiziksel servis, ardından servis-vardiya seçilir. Her servis-vardiya
+  için il, ilçe, mahalle, nokta/durak adı, açık adres, açıklama ve isteğe bağlı koordinat
+  bilgileri sıra numarasıyla tutulur. Noktalar silinmeden aktif/pasif yapılabilir; yukarı ve
+  aşağı taşıma işlemleri sıraları yeniden 1'den başlayarak kesintisiz düzenler. İlk ve son
+  kayıtlar başlangıç/bitiş olarak listede görünür. Bu ayrıntılar servis-vardiyanın kısa
+  `rota_adi` bilgisini otomatik değiştirmez.
 
 Bu ekranlar personeli servise atamaz, otomatik atama algoritmasını çalıştırmaz ve
 `atama` tablosundaki mevcut kayıtları değiştirmez.
+
+## Servis güzergâhı aktarımı
+
+Servis Mahalle/Güzergâh dosyasını seçip analiz ettikten sonra `Geçerli Güzergâh
+Kayıtlarını Aktar` butonunu kullanın. Servis kodu mevcut bir fiziksel servisle eşleşmelidir;
+aktarırken yeni servis oluşturulmaz. Excel satırında vardiya/yaka belirtilmemişse güzergâh
+noktası servisin bütün servis-vardiyalarına ayrı ayrı eklenir; belirtilmişse yalnızca bu
+bilgilerle eşleşen vardiyalara eklenir. Her servis-vardiya aynı rota içinde birden fazla ilçe,
+mahalle ve nokta içerebilir. Aynı servis-vardiya ve aynı konum bilgileri yeniden aktarılmaz.
+Tüm eklemeler tek transaction içinde yapılır; bir hata olursa o aktarımda eklenen noktaların
+tamamı geri alınır.
 
 ## Testleri çalıştırma
 

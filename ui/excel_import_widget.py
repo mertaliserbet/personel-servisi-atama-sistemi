@@ -48,10 +48,14 @@ from services import (
     ServiceCapacityImportPlan,
     ServiceCapacityImportResult,
     ServiceCapacityImportService,
+    ServiceRouteImportPlan,
+    ServiceRouteImportResult,
+    ServiceRouteImportService,
 )
 from ui.column_mapping_dialog import ColumnMappingDialog
 from ui.personnel_import_dialog import PersonnelImportDialog
 from ui.service_capacity_import_dialog import ServiceCapacityImportDialog
+from ui.service_route_import_dialog import ServiceRouteImportDialog
 from ui.workers import FunctionWorker
 
 
@@ -108,20 +112,28 @@ class ExcelImportWidget(QWidget):
         self.import_personnel_button = QPushButton(
             "Geçerli Personel Kayıtlarını Aktar"
         )
+        self.import_route_button = QPushButton(
+            "Geçerli Güzergâh Kayıtlarını Aktar"
+        )
         self.clear_button = QPushButton("Temizle")
         button_layout.addWidget(self.analyze_button)
         button_layout.addWidget(self.mapping_button)
-        button_layout.addWidget(self.import_capacity_button)
-        button_layout.addWidget(self.import_personnel_button)
         button_layout.addStretch()
         button_layout.addWidget(self.clear_button)
         source_layout.addLayout(button_layout, 2, 0, 1, 4)
+
+        import_button_layout = QHBoxLayout()
+        import_button_layout.addWidget(self.import_capacity_button)
+        import_button_layout.addWidget(self.import_personnel_button)
+        import_button_layout.addWidget(self.import_route_button)
+        import_button_layout.addStretch()
+        source_layout.addLayout(import_button_layout, 3, 0, 1, 4)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.hide()
-        source_layout.addWidget(self.progress_bar, 3, 0, 1, 4)
+        source_layout.addWidget(self.progress_bar, 4, 0, 1, 4)
         root.addWidget(source_group)
 
         counts_layout = QHBoxLayout()
@@ -181,6 +193,7 @@ class ExcelImportWidget(QWidget):
         self.mapping_button.clicked.connect(self._edit_mapping)
         self.import_capacity_button.clicked.connect(self._prepare_capacity_import)
         self.import_personnel_button.clicked.connect(self._prepare_personnel_import)
+        self.import_route_button.clicked.connect(self._prepare_route_import)
         self.clear_button.clicked.connect(self.clear)
         self.sheet_combo.currentIndexChanged.connect(self._sheet_changed)
         self.file_type_combo.currentIndexChanged.connect(self._file_type_changed)
@@ -199,6 +212,9 @@ class ExcelImportWidget(QWidget):
         )
         self.import_personnel_button.setEnabled(
             not busy and self._personnel_import_available()
+        )
+        self.import_route_button.setEnabled(
+            not busy and self._route_import_available()
         )
 
     def _run_async(self, function, on_result, on_error=None) -> None:
@@ -324,6 +340,7 @@ class ExcelImportWidget(QWidget):
         self._populate_preview()
         self.import_capacity_button.setEnabled(self._capacity_import_available())
         self.import_personnel_button.setEnabled(self._personnel_import_available())
+        self.import_route_button.setEnabled(self._route_import_available())
 
     def _personnel_import_available(self) -> bool:
         return bool(
@@ -338,6 +355,15 @@ class ExcelImportWidget(QWidget):
         return bool(
             self._report is not None
             and self._report.record_type is RecordType.SERVIS_KAPASITE
+            and any(row.validation.is_valid for row in self._report.rows)
+            and not self._import_in_progress
+            and not self._report_imported
+        )
+
+    def _route_import_available(self) -> bool:
+        return bool(
+            self._report is not None
+            and self._report.record_type is RecordType.SERVIS_GUZERGAH
             and any(row.validation.is_valid for row in self._report.rows)
             and not self._import_in_progress
             and not self._report_imported
@@ -468,6 +494,58 @@ class ExcelImportWidget(QWidget):
         self._import_in_progress = False
         self._set_busy(bool(self._workers))
         QMessageBox.critical(self, "Personel Aktarım Hatası", message)
+
+    def _prepare_route_import(self) -> None:
+        if self._import_in_progress or not self._route_import_available():
+            return
+        report = self._report
+        if report is None:
+            return
+        self._import_in_progress = True
+        self._run_async(
+            lambda: ServiceRouteImportService().preview_import(report),
+            self._show_route_import_confirmation,
+            self._show_route_import_error,
+        )
+
+    def _show_route_import_confirmation(
+        self,
+        plan: ServiceRouteImportPlan,
+    ) -> None:
+        dialog = ServiceRouteImportDialog(plan, self)
+        if not dialog.exec():
+            self._import_in_progress = False
+            self._set_busy(bool(self._workers))
+            return
+        report = self._report
+        if report is None:
+            self._import_in_progress = False
+            return
+        self._run_async(
+            lambda: ServiceRouteImportService().import_report(report),
+            self._route_import_completed,
+            self._show_route_import_error,
+        )
+
+    def _route_import_completed(self, result: ServiceRouteImportResult) -> None:
+        self._import_in_progress = False
+        self._report_imported = True
+        self.import_route_button.setEnabled(False)
+        QMessageBox.information(
+            self,
+            "Güzergâh Aktarımı",
+              "Güzergâh aktarımı tamamlandı.\n\n"
+              f"Eklenen nokta: {result.added_count}\n"
+              f"Atlanan eşleşme: {result.skipped_count}\n"
+              f"Hatalı eşleşme: {result.invalid_count}\n"
+              f"Mükerrer nokta: {result.duplicate_count}\n"
+              f"Bulunmayan servis: {result.missing_service_count}",
+          )
+
+    def _show_route_import_error(self, message: str) -> None:
+        self._import_in_progress = False
+        self._set_busy(bool(self._workers))
+        QMessageBox.critical(self, "Güzergâh Aktarım Hatası", message)
 
     def _detection_text(self, detection) -> str:
         lines = ["Otomatik dosya türü puanları:"]
@@ -634,6 +712,7 @@ class ExcelImportWidget(QWidget):
         self.mapping_button.setEnabled(False)
         self.import_capacity_button.setEnabled(False)
         self.import_personnel_button.setEnabled(False)
+        self.import_route_button.setEnabled(False)
 
     def clear(self, *, keep_path: bool = False) -> None:
         self._workbook_info = None

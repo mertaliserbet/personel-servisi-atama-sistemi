@@ -134,6 +134,57 @@ class DatabaseTestCase(unittest.TestCase):
         finally:
             legacy_engine.dispose()
 
+    def test_legacy_route_rows_are_preserved_before_shift_schema_is_created(self) -> None:
+        legacy_engine = create_database_engine(
+            Path(self.temporary_directory.name) / "legacy_route.db"
+        )
+        try:
+            with legacy_engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE servis_guzergah_noktasi ("
+                    "id INTEGER PRIMARY KEY, "
+                    "servis_id INTEGER NOT NULL, "
+                    "sira_no INTEGER NOT NULL, "
+                    "nokta_adi VARCHAR(300) NOT NULL, "
+                    "enlem FLOAT NOT NULL, "
+                    "boylam FLOAT NOT NULL, "
+                    "aktif_mi BOOLEAN NOT NULL"
+                    ")"
+                )
+                connection.exec_driver_sql(
+                    "INSERT INTO servis_guzergah_noktasi "
+                    "(id, servis_id, sira_no, nokta_adi, enlem, boylam, aktif_mi) "
+                    "VALUES (1, 7, 1, 'Eski nokta', 36.8, 34.6, 1)"
+                )
+
+            initialize_database(legacy_engine)
+            inspector = inspect(legacy_engine)
+            tables = set(inspector.get_table_names())
+            columns = {
+                column["name"]: column
+                for column in inspector.get_columns("servis_guzergah_noktasi")
+            }
+            self.assertIn("servis_guzergah_noktasi_legacy", tables)
+            self.assertIn("servis_vardiya_id", columns)
+            self.assertIn("aciklama", columns)
+            self.assertTrue(columns["enlem"]["nullable"])
+            self.assertTrue(columns["boylam"]["nullable"])
+            with legacy_engine.connect() as connection:
+                self.assertEqual(
+                    connection.exec_driver_sql(
+                        "SELECT COUNT(*) FROM servis_guzergah_noktasi_legacy"
+                    ).scalar_one(),
+                    1,
+                )
+                self.assertEqual(
+                    connection.exec_driver_sql(
+                        "SELECT COUNT(*) FROM servis_guzergah_noktasi"
+                    ).scalar_one(),
+                    0,
+                )
+        finally:
+            legacy_engine.dispose()
+
     def test_duplicate_personnel_number_is_rejected(self) -> None:
         with self.session_factory() as session:
             session.add(self.create_personnel())

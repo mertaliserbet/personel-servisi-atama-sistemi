@@ -333,9 +333,88 @@ def validate_service_route_row(
         "KAPASITE",
         canonical_row.get("KAPASITE"),
     )
-    _normalize_required_text(result, "MAHALLE", canonical_row.get("MAHALLE"), "Mahalle")
-    _normalize_required_text(result, "ILCE", canonical_row.get("ILCE"), "İlçe")
-    _normalize_coordinates(result, canonical_row)
+    _normalize_optional_positive_integer(
+        result,
+        "SIRA_NO",
+        canonical_row.get("SIRA_NO"),
+    )
+    _normalize_optional_text(result, "IL", canonical_row.get("IL"), "İl")
+    district = _normalize_optional_text(
+        result,
+        "ILCE",
+        canonical_row.get("ILCE"),
+        "İlçe",
+    )
+    neighborhood = _normalize_optional_text(
+        result,
+        "MAHALLE",
+        canonical_row.get("MAHALLE"),
+        "Mahalle",
+    )
+    point_name = _normalize_optional_text(
+        result,
+        "NOKTA_ADI",
+        canonical_row.get("NOKTA_ADI"),
+        "Nokta adı",
+    )
+    _normalize_optional_text(
+        result,
+        "ACIK_ADRES",
+        canonical_row.get("ACIK_ADRES"),
+        "Açık adres",
+    )
+    _normalize_optional_text(
+        result,
+        "ACIKLAMA",
+        canonical_row.get("ACIKLAMA"),
+        "Açıklama",
+    )
+    if district is None and neighborhood is None and point_name is None:
+        result.add_error(
+            "MISSING_ROUTE_POINT",
+            "İlçe, mahalle veya nokta adı alanlarından en az biri dolu olmalıdır.",
+        )
+    if is_blank(canonical_row.get("VARDIYA")):
+        result.normalized_data["VARDIYA"] = None
+    else:
+        _normalize_with_error(
+            result,
+            "VARDIYA",
+            canonical_row.get("VARDIYA"),
+            normalize_shift,
+        )
+    if is_blank(canonical_row.get("YAKA")):
+        result.normalized_data["YAKA"] = None
+    else:
+        _normalize_with_error(
+            result,
+            "YAKA",
+            canonical_row.get("YAKA"),
+            normalize_collar,
+        )
+    _normalize_with_error(
+        result,
+        "AKTIF_MI",
+        canonical_row.get("AKTIF_MI"),
+        normalize_active_status,
+    )
+    latitude = _normalize_with_error(
+        result,
+        "ENLEM",
+        canonical_row.get("ENLEM"),
+        lambda value: normalize_coordinate(value, latitude=True),
+    )
+    longitude = _normalize_with_error(
+        result,
+        "BOYLAM",
+        canonical_row.get("BOYLAM"),
+        lambda value: normalize_coordinate(value, latitude=False),
+    )
+    if (latitude is None) != (longitude is None):
+        result.add_error(
+            "INCOMPLETE_COORDINATES",
+            "Enlem ve boylam birlikte doldurulmalı veya ikisi de boş bırakılmalıdır.",
+        )
     return result
 
 
