@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWid
 from app.constants import APPLICATION_DISPLAY_NAME
 from ui.excel_import_widget import ExcelImportWidget
 from ui.personnel_management_widget import PersonnelManagementWidget
+from ui.service_management_widget import ServiceManagementWidget
 
 
 class MainWindow(QMainWindow):
@@ -37,6 +38,7 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget(central_widget)
         tabs.addTab(ExcelImportWidget(tabs), "Excel Aktarımı")
         tabs.addTab(PersonnelManagementWidget(tabs), "Personel Yönetimi")
+        tabs.addTab(ServiceManagementWidget(tabs), "Servis Yönetimi")
 
         layout.addWidget(title)
         layout.addWidget(tabs, 1)

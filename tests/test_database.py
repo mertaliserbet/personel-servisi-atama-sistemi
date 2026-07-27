@@ -112,6 +112,28 @@ class DatabaseTestCase(unittest.TestCase):
         finally:
             legacy_engine.dispose()
 
+    def test_existing_database_receives_driver_name_columns(self) -> None:
+        legacy_engine = create_database_engine(
+            Path(self.temporary_directory.name) / "legacy_driver.db"
+        )
+        try:
+            with legacy_engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE sofor ("
+                    "id INTEGER PRIMARY KEY, "
+                    "ad_soyad VARCHAR(200) NOT NULL, "
+                    "telefon VARCHAR(30)"
+                    ")"
+                )
+            initialize_database(legacy_engine)
+            columns = {
+                column["name"]
+                for column in inspect(legacy_engine).get_columns("sofor")
+            }
+            self.assertTrue({"ad", "soyad", "ad_soyad", "telefon"}.issubset(columns))
+        finally:
+            legacy_engine.dispose()
+
     def test_duplicate_personnel_number_is_rejected(self) -> None:
         with self.session_factory() as session:
             session.add(self.create_personnel())

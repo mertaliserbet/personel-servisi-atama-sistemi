@@ -29,6 +29,8 @@ class Sofor(ActiveMixin, TimestampMixin, Base):
     __tablename__ = "sofor"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    ad: Mapped[str | None] = mapped_column(String(100))
+    soyad: Mapped[str | None] = mapped_column(String(100))
     ad_soyad: Mapped[str] = mapped_column(String(200), nullable=False)
     telefon: Mapped[str | None] = mapped_column(String(30))
 

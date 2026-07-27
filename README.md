@@ -22,10 +22,14 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - Transaction ile yeni fiziksel servis/servis vardiyası ekleme ve kontrollü güncelleme
 - Sicil numarası bazlı kontrollü personel ekleme ve profil güncelleme
 - Personel listeleme, sicil arama, manuel kayıt, güncelleme ve aktif/pasif yönetimi
+- Fiziksel servis listeleme, servis kodu arama, manuel kayıt ve aktif/pasif yönetimi
+- Servis-vardiya listeleme, ekleme, güncelleme ve doluluk korumalı kapasite yönetimi
+- Şoför listeleme, ekleme, güncelleme, aktif/pasif ve servis ilişkilendirme işlemleri
 
 Doğrulanmış Servis Kapasite ve Personel Excel kayıtları kullanıcı onayıyla
-veritabanına aktarılabilir. Servis güzergâhı Excel aktarımı, yönetim ekranları,
-harita, atama algoritması, PyInstaller ve Inno Setup özellikleri henüz geliştirilmemiştir.
+veritabanına aktarılabilir. Personel, fiziksel servis, servis-vardiya ve şoför kayıtları
+uygulama içinden yönetilebilir. Servis güzergâhı Excel aktarımı, harita, otomatik atama
+algoritması, raporlama, PyInstaller ve Inno Setup özellikleri henüz geliştirilmemiştir.
 
 ## Gereksinimler
 
@@ -95,6 +99,24 @@ Manuel kayıtta statü `KADROLU` veya `STAJYER` olarak seçilebilir. Staj başla
 bitiş tarihi alanları yalnızca `STAJYER` seçildiğinde gösterilir ve iki tarih de zorunlu
 olur. Manuel oluşturulan kayıtların aktarım grubu kullanıcıya sorulmadan sistem
 tarafından `MANUEL` olarak belirlenir.
+
+## Servis, vardiya ve şoför yönetimi
+
+`Servis Yönetimi` sekmesi üç ayrı bölümden oluşur:
+
+- `Fiziksel Servisler`: Servis koduyla arama, yeni servis ekleme, şoför seçme ve
+  aktif/pasif yönetimi sağlar. Servis kodu benzersizdir ve kayıt güncellenirken korunur.
+  Yeni servis isteğe bağlı olarak ilk servis-vardiya kaydıyla aynı transaction içinde
+  oluşturulur; iki kayıttan biri başarısız olursa işlem tamamen geri alınır.
+- `Servis Vardiyaları`: Fiziksel servisten ayrı vardiya kayıtlarını yönetir. Aynı servis,
+  vardiya ve yaka birleşimi ikinci kez oluşturulamaz. Kapasite pozitif tam sayıdır ve
+  aktif personel doluluğunun altına indirilemez. Güncelleme mevcut atamaları değiştirmez.
+- `Şoförler`: Ad, soyad, telefon, aktiflik ve fiziksel servis ilişkilerini yönetir. Kayıtlar
+  silinmez; aktif/pasif yapılır. Aynı şoföre aynı vardiyada birden fazla aktif fiziksel
+  servis görevi verilmesi engellenir.
+
+Bu ekranlar personeli servise atamaz, otomatik atama algoritmasını çalıştırmaz ve
+`atama` tablosundaki mevcut kayıtları değiştirmez.
 
 ## Testleri çalıştırma
 

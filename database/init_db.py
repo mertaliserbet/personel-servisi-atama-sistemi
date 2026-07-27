@@ -51,6 +51,28 @@ def _apply_compatibility_migrations(database_engine: Engine) -> None:
             ", personel.".join(missing_name_columns),
         )
 
+    inspector = inspect(database_engine)
+    if "sofor" not in inspector.get_table_names():
+        return
+    driver_columns = {
+        column["name"] for column in inspector.get_columns("sofor")
+    }
+    missing_driver_name_columns = [
+        column_name
+        for column_name in ("ad", "soyad")
+        if column_name not in driver_columns
+    ]
+    if missing_driver_name_columns:
+        with database_engine.begin() as connection:
+            for column_name in missing_driver_name_columns:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE sofor ADD COLUMN {column_name} VARCHAR(100)"
+                )
+        logger.info(
+            "Veritabanı uyumluluk güncellemesi uygulandı: sofor.%s",
+            ", sofor.".join(missing_driver_name_columns),
+        )
+
 
 def initialize_database(database_engine: Engine = engine) -> None:
     """Tanımlı tüm SQLAlchemy tablolarını yoksa oluşturur."""
