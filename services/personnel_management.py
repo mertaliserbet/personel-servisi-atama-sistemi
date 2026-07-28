@@ -14,6 +14,7 @@ from database.models import Personel, PersonelTuru, VardiyaTuru, YakaTuru
 from database.repositories import PersonelRepository
 from database.session import SessionFactory, session_scope
 from normalization import validate_personnel_row
+from services.geocoding import AddressInput
 
 
 logger = logging.getLogger(__name__)
@@ -301,6 +302,24 @@ class PersonnelManagementService:
 
     @staticmethod
     def _apply_profile(personnel: Personel, normalized: dict[str, Any]) -> None:
+        previous_address = AddressInput(
+            address=personnel.acik_adres,
+            city=personnel.il,
+            district=personnel.ilce,
+            neighborhood=personnel.mahalle,
+        ).signature()
+        new_address = AddressInput(
+            address=str(normalized["ACIK_ADRES"]),
+            city=normalized.get("IL"),
+            district=normalized.get("ILCE"),
+            neighborhood=normalized.get("MAHALLE"),
+        ).signature()
+        if (
+            personnel.enlem is not None
+            and personnel.boylam is not None
+            and previous_address != new_address
+        ):
+            personnel.koordinat_durumu = "GUNCEL_DEGIL"
         personnel.ad = normalized.get("AD")
         personnel.soyad = normalized.get("SOYAD")
         personnel.ad_soyad = " ".join(

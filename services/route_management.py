@@ -9,7 +9,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from database.models import ServisGuzergahNoktasi
-from database.repositories import RoutePointRepository, ServisVardiyasiRepository
+from database.repositories import (
+    RouteGeometryRepository,
+    RoutePointRepository,
+    ServisVardiyasiRepository,
+)
 from database.session import SessionFactory, session_scope
 from normalization.text import comparison_key, is_blank, is_excel_error, normalize_text
 from normalization.values import (
@@ -17,6 +21,7 @@ from normalization.values import (
     normalize_coordinate,
     normalize_positive_integer,
 )
+from services.geocoding import AddressInput
 
 
 logger = logging.getLogger(__name__)
@@ -159,6 +164,7 @@ class RouteManagementService:
                 )
                 self._apply_values(point, normalized)
                 repository.add(point)
+                RouteGeometryRepository(session).mark_stale(service_shift_id)
                 stored = repository.get_detail(point.id)
                 if stored is None:
                     raise RuntimeError("Oluşturulan güzergâh noktası tekrar okunamadı.")
@@ -215,6 +221,9 @@ class RouteManagementService:
                 point.sira_no = sequence
                 point.aktif_mi = normalized["active"]
                 self._apply_values(point, normalized)
+                RouteGeometryRepository(session).mark_stale(
+                    point.servis_vardiya_id
+                )
                 repository.session.flush()
                 views = self._to_ordered_views(
                     repository.list_for_shift(point.servis_vardiya_id)
@@ -279,6 +288,9 @@ class RouteManagementService:
                         points[current_index],
                     )
                     repository.resequence(points)
+                    RouteGeometryRepository(session).mark_stale(
+                        point.servis_vardiya_id
+                    )
                 views = self._to_ordered_views(
                     repository.list_for_shift(point.servis_vardiya_id)
                 )
@@ -391,6 +403,13 @@ class RouteManagementService:
         point: ServisGuzergahNoktasi,
         normalized: dict[str, object],
     ) -> None:
+        previous_address = AddressInput(
+            address=point.acik_adres,
+            city=point.il,
+            district=point.ilce,
+            neighborhood=point.mahalle,
+        ).signature()
+        previous_coordinates = (point.enlem, point.boylam)
         point.il = normalized["city"]
         point.ilce = normalized["district"]
         point.mahalle = normalized["neighborhood"]
@@ -399,6 +418,20 @@ class RouteManagementService:
         point.aciklama = normalized["description"]
         point.enlem = normalized["latitude"]
         point.boylam = normalized["longitude"]
+        current_address = AddressInput(
+            address=point.acik_adres,
+            city=point.il,
+            district=point.ilce,
+            neighborhood=point.mahalle,
+        )
+        if point.enlem is None or point.boylam is None:
+            point.koordinat_durumu = "EKSIK"
+            point.koordinat_adres_ozeti = None
+        elif previous_coordinates != (point.enlem, point.boylam):
+            point.koordinat_durumu = "MANUEL"
+            point.koordinat_adres_ozeti = current_address.signature()
+        elif previous_address != current_address.signature():
+            point.koordinat_durumu = "GUNCEL_DEGIL"
 
     @classmethod
     def _to_ordered_views(

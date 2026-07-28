@@ -109,6 +109,9 @@ class DatabaseTestCase(unittest.TestCase):
                 for column in inspect(legacy_engine).get_columns("personel")
             }
             self.assertTrue({"ad", "soyad"}.issubset(columns))
+            self.assertTrue(
+                {"koordinat_durumu", "koordinat_adres_ozeti"}.issubset(columns)
+            )
         finally:
             legacy_engine.dispose()
 
@@ -181,6 +184,52 @@ class DatabaseTestCase(unittest.TestCase):
                         "SELECT COUNT(*) FROM servis_guzergah_noktasi"
                     ).scalar_one(),
                     0,
+                )
+        finally:
+            legacy_engine.dispose()
+
+    def test_legacy_physical_service_geometry_is_preserved_before_shift_schema(self) -> None:
+        legacy_engine = create_database_engine(
+            Path(self.temporary_directory.name) / "legacy_geometry.db"
+        )
+        try:
+            with legacy_engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE servis_guzergah_geometrisi ("
+                    "id INTEGER PRIMARY KEY, "
+                    "servis_id INTEGER NOT NULL UNIQUE, "
+                    "geojson TEXT NOT NULL, "
+                    "toplam_mesafe_metre FLOAT NOT NULL, "
+                    "hesaplanma_tarihi DATETIME NOT NULL, "
+                    "aktif_mi BOOLEAN NOT NULL"
+                    ")"
+                )
+                connection.exec_driver_sql(
+                    "INSERT INTO servis_guzergah_geometrisi VALUES "
+                    "(1, 7, '{}', 1000, CURRENT_TIMESTAMP, 1)"
+                )
+            initialize_database(legacy_engine)
+            inspector = inspect(legacy_engine)
+            tables = set(inspector.get_table_names())
+            columns = {
+                column["name"]
+                for column in inspector.get_columns("servis_guzergah_geometrisi")
+            }
+            self.assertIn("servis_guzergah_geometrisi_legacy", tables)
+            self.assertTrue(
+                {
+                    "servis_vardiya_id",
+                    "toplam_sure_saniye",
+                    "nokta_ozeti",
+                    "guncel_mi",
+                }.issubset(columns)
+            )
+            with legacy_engine.connect() as connection:
+                self.assertEqual(
+                    connection.exec_driver_sql(
+                        "SELECT COUNT(*) FROM servis_guzergah_geometrisi_legacy"
+                    ).scalar_one(),
+                    1,
                 )
         finally:
             legacy_engine.dispose()

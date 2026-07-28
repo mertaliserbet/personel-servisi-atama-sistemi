@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWid
 
 from app.constants import APPLICATION_DISPLAY_NAME
 from ui.excel_import_widget import ExcelImportWidget
+from ui.map_management_widget import MapManagementWidget
 from ui.personnel_management_widget import PersonnelManagementWidget
 from ui.service_management_widget import ServiceManagementWidget
 
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(ExcelImportWidget(tabs), "Excel Aktarımı")
         tabs.addTab(PersonnelManagementWidget(tabs), "Personel Yönetimi")
         tabs.addTab(ServiceManagementWidget(tabs), "Servis Yönetimi")
+        tabs.addTab(MapManagementWidget(tabs), "Harita ve Rota")
 
         layout.addWidget(title)
         layout.addWidget(tabs, 1)

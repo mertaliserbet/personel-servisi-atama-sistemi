@@ -27,11 +27,14 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - Şoför listeleme, ekleme, güncelleme, aktif/pasif ve servis ilişkilendirme işlemleri
 - Servis-vardiya bazlı sıralı güzergâh noktası yönetimi ve aktif/pasif işlemleri
 - Güvenli servis-vardiya eşleştirmeli, tekrar çalıştırılabilir güzergâh Excel aktarımı
+- Nominatim ile kullanıcı onaylı adres çözümleme ve manuel koordinat yönetimi
+- Personel ve servis-vardiya güzergâhlarını gösteren OpenStreetMap harita ekranı
+- OSRM ile sıralı güzergâh rota, mesafe ve tahmini süre hesaplama
 
 Doğrulanmış Servis Kapasite ve Personel Excel kayıtları kullanıcı onayıyla
 veritabanına aktarılabilir. Personel, fiziksel servis, servis-vardiya ve şoför kayıtları
-uygulama içinden yönetilebilir. Servis güzergâhı Excel aktarımı da desteklenir. Harita,
-otomatik atama algoritması, raporlama, PyInstaller ve Inno Setup özellikleri henüz
+uygulama içinden yönetilebilir. Servis güzergâhı Excel aktarımı da desteklenir. Otomatik
+atama algoritması, raporlama, PyInstaller ve Inno Setup özellikleri henüz
 geliştirilmemiştir.
 
 ## Gereksinimler
@@ -137,6 +140,46 @@ bilgilerle eşleşen vardiyalara eklenir. Her servis-vardiya aynı rota içinde 
 mahalle ve nokta içerebilir. Aynı servis-vardiya ve aynı konum bilgileri yeniden aktarılmaz.
 Tüm eklemeler tek transaction içinde yapılır; bir hata olursa o aktarımda eklenen noktaların
 tamamı geri alınır.
+
+## Harita, adres çözümleme ve rota hesaplama
+
+`Harita ve Rota` sekmesinde seçilen personel veya servis-vardiya güzergâhı haritada
+gösterilebilir. Başlangıç, ara ve bitiş noktaları farklı renklerle işaretlenir. Harita
+OpenStreetMap verisini kullanır ve harita üzerinde gerekli kaynak atfını gösterir.
+
+`Adresi Çözümle` ve `Seçili Noktayı Çözümle` işlemleri önce tam adresi Nominatim'e
+gönderir; sonuç bulunamazsa mahalle, ilçe ve il bilgileriyle kontrollü geri dönüş araması
+yapar. Bulunan sonuçlar kullanıcıya gösterilir. Birden fazla sonuç varsa kullanıcı seçim
+yapar. İl, ilçe veya mahalle uyuşmazlığı varsa alanlar sessizce değiştirilmez; kullanıcı
+mevcut bilgileri koruyabilir veya bulunan idari alanları ayrıca kabul edebilir. Mevcut
+koordinatlar yalnızca kullanıcı yeniden çözümlemeyi onaylarsa sorgulanır. Manuel enlem ve
+boylam girişi de desteklenir.
+
+Personel adresi değiştiğinde mevcut koordinat `GUNCEL_DEGIL` durumuna alınır. Güzergâh
+noktası, sırası, aktifliği veya koordinatı değiştiğinde servis-vardiya için saklanan rota
+sonucu güncel değil olarak işaretlenir. `Rotayı Hesapla` noktaları `sira_no` sırasında OSRM'ye
+gönderir; OSRM nokta sırasını değiştirmez. Mesafe, tahmini süre ve GeoJSON rota çizgisi
+servis-vardiya bazında transaction ile saklanır.
+
+Toplu koordinat çözümleme tek worker ve tek istek akışıyla çalışır, istekleri saniyede en
+fazla bir kez gönderir ve kullanıcı tarafından iptal edilebilir. Tek ve idari alanlarla
+uyumlu sonuçlar kaydedilir; çoklu veya uyumsuz sonuçlar kullanıcı seçimi gerektiren uyarı
+olarak bırakılır. Bir kaydın başarısız olması sonraki kayıtları durdurmaz. Nominatim'in
+[kullanım politikası](https://operations.osmfoundation.org/policies/nominatim/) gereği
+adres gönderiminden önce kullanıcı onayı alınır ve onaylanan sonuçlar yerel
+`adres_onbellek` tablosunda önbelleğe alınır.
+
+Servis adresleri kurulum yapılmadan ortam değişkenleriyle değiştirilebilir:
+
+```powershell
+$env:SERVIS_ATAMA_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+$env:SERVIS_ATAMA_OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
+$env:SERVIS_ATAMA_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+$env:SERVIS_ATAMA_USER_AGENT = "PersonelServisiAtamaSistemi/1.0"
+```
+
+İnternet bağlantısı, timeout veya geçersiz servis cevabı uygulamayı kapatmaz. Kullanıcıya
+Türkçe hata gösterilir; teknik ayrıntı log dosyasına yazılır ve loglara tam adres eklenmez.
 
 ## Testleri çalıştırma
 

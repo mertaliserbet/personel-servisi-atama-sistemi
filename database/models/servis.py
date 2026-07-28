@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -53,11 +55,6 @@ class Servis(ActiveMixin, TimestampMixin, Base):
         back_populates="servis",
         cascade="all, delete-orphan",
     )
-    guzergah_geometrisi: Mapped[ServisGuzergahGeometrisi | None] = relationship(
-        back_populates="servis",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )
 
 
 class ServisVardiyasi(ActiveMixin, TimestampMixin, Base):
@@ -95,6 +92,11 @@ class ServisVardiyasi(ActiveMixin, TimestampMixin, Base):
         back_populates="servis_vardiyasi",
         cascade="all, delete-orphan",
         order_by="ServisGuzergahNoktasi.sira_no",
+    )
+    guzergah_geometrisi: Mapped[ServisGuzergahGeometrisi | None] = relationship(
+        back_populates="servis_vardiyasi",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
 
@@ -136,6 +138,13 @@ class ServisGuzergahNoktasi(ActiveMixin, TimestampMixin, Base):
     mahalle: Mapped[str | None] = mapped_column(String(200))
     enlem: Mapped[float | None] = mapped_column(Float)
     boylam: Mapped[float | None] = mapped_column(Float)
+    koordinat_durumu: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="EKSIK",
+        server_default="EKSIK",
+    )
+    koordinat_adres_ozeti: Mapped[str | None] = mapped_column(String(64))
     durak_mi: Mapped[bool] = mapped_column(nullable=False, default=False)
 
     servis_vardiyasi: Mapped[ServisVardiyasi] = relationship(
@@ -150,20 +159,34 @@ class ServisGuzergahGeometrisi(ActiveMixin, TimestampMixin, Base):
             "toplam_mesafe_metre >= 0",
             name="negatif_olmayan_mesafe",
         ),
+        CheckConstraint(
+            "toplam_sure_saniye >= 0",
+            name="negatif_olmayan_sure",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    servis_id: Mapped[int] = mapped_column(
-        ForeignKey("servis.id", ondelete="CASCADE"),
+    servis_vardiya_id: Mapped[int] = mapped_column(
+        ForeignKey("servis_vardiya.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
     )
     geojson: Mapped[str] = mapped_column(Text, nullable=False)
     toplam_mesafe_metre: Mapped[float] = mapped_column(Float, nullable=False)
+    toplam_sure_saniye: Mapped[float] = mapped_column(Float, nullable=False)
+    nokta_ozeti: Mapped[str] = mapped_column(String(64), nullable=False)
+    guncel_mi: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=true(),
+    )
     hesaplanma_tarihi: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
         server_default=func.current_timestamp(),
     )
 
-    servis: Mapped[Servis] = relationship(back_populates="guzergah_geometrisi")
+    servis_vardiyasi: Mapped[ServisVardiyasi] = relationship(
+        back_populates="guzergah_geometrisi"
+    )

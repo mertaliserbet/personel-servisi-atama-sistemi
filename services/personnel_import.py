@@ -15,6 +15,7 @@ from database.session import SessionFactory, session_scope
 from excel_import.models import AnalysisReport, PreviewRow
 from normalization.result import RecordType
 from services.service_capacity_import import ConflictBehavior, ImportAction
+from services.geocoding import AddressInput
 
 
 logger = logging.getLogger(__name__)
@@ -433,6 +434,12 @@ class PersonnelImportService:
         *,
         new_record: bool,
     ) -> None:
+        new_address = AddressInput(
+            address=record.address,
+            city=record.city,
+            district=record.district,
+            neighborhood=record.neighborhood,
+        )
         if new_record or record.first_name_provided:
             personnel.ad = record.first_name
         if new_record or record.last_name_provided:
@@ -446,6 +453,12 @@ class PersonnelImportService:
         personnel.mahalle = record.neighborhood
         personnel.enlem = record.latitude
         personnel.boylam = record.longitude
+        if record.latitude is not None and record.longitude is not None:
+            personnel.koordinat_durumu = "MEVCUT"
+            personnel.koordinat_adres_ozeti = new_address.signature()
+        else:
+            personnel.koordinat_durumu = "EKSIK"
+            personnel.koordinat_adres_ozeti = None
         personnel.vardiya_turu = record.shift
         personnel.yaka_turu = record.collar
         personnel.personel_turu = record.personnel_type

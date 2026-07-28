@@ -1,0 +1,669 @@
+"""Koordinat onayı, toplu çözümleme ve servis-vardiya rota yönetimi."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Callable, Literal
+
+from sqlalchemy.orm import Session, sessionmaker
+
+from database.models import (
+    AdresOnbellegi,
+    Personel,
+    ServisGuzergahGeometrisi,
+    ServisGuzergahNoktasi,
+)
+from database.repositories import (
+    AddressCacheRepository,
+    PersonnelCoordinateRepository,
+    RouteGeometryRepository,
+    RoutePointCoordinateRepository,
+    RoutePointRepository,
+    ServisVardiyasiRepository,
+)
+from database.session import SessionFactory, session_scope
+from normalization.text import comparison_key
+from normalization.values import ValueNormalizationError, normalize_coordinate
+from services.external_http import ExternalServiceError
+from services.geocoding import (
+    AddressInput,
+    AddressMismatch,
+    GeocodingCandidate,
+    NominatimGeocodingService,
+    compare_address,
+)
+from services.routing import OsrmRoutingService, RouteCoordinate
+
+
+logger = logging.getLogger(__name__)
+
+CoordinateTargetType = Literal["PERSONEL", "GUZERGAH"]
+
+
+class MapManagementError(RuntimeError):
+    """Harita ve koordinat işlemleri için kullanıcıya güvenli temel hata."""
+
+
+class CoordinateTargetNotFoundError(MapManagementError):
+    """Personel veya güzergâh noktası bulunamadığında üretilir."""
+
+
+class CoordinateValidationError(MapManagementError):
+    """Manuel koordinat geçersiz olduğunda üretilir."""
+
+
+class RouteCalculationError(MapManagementError):
+    """Servis-vardiya rotası hesaplanamadığında üretilir."""
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinateTargetView:
+    target_type: CoordinateTargetType
+    id: int
+    label: str
+    address: str | None
+    city: str | None
+    district: str | None
+    neighborhood: str | None
+    latitude: float | None
+    longitude: float | None
+    coordinate_status: str
+
+    @property
+    def has_coordinates(self) -> bool:
+        return self.latitude is not None and self.longitude is not None
+
+    def address_input(self) -> AddressInput:
+        return AddressInput(
+            address=self.address,
+            city=self.city,
+            district=self.district,
+            neighborhood=self.neighborhood,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateReview:
+    candidate: GeocodingCandidate
+    mismatches: tuple[AddressMismatch, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GeocodingLookupResult:
+    target: CoordinateTargetView
+    candidates: tuple[CandidateReview, ...]
+    skipped_existing: bool = False
+    used_cache: bool = False
+    used_fallback: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class BulkGeocodingResult:
+    total_count: int
+    success_count: int
+    not_found_count: int
+    warning_count: int
+    failure_count: int
+    cancelled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RoutePointMapView:
+    id: int
+    sequence: int
+    label: str
+    district: str | None
+    neighborhood: str | None
+    latitude: float | None
+    longitude: float | None
+    active: bool
+    position_label: str
+
+
+@dataclass(frozen=True, slots=True)
+class RouteMapData:
+    service_shift_id: int
+    service_code: str
+    shift: str
+    collar: str
+    points: tuple[RoutePointMapView, ...]
+    geometry: dict[str, object] | None
+    distance_meters: float | None
+    duration_seconds: float | None
+    route_is_current: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RouteCalculationResult:
+    map_data: RouteMapData
+    distance_meters: float
+    duration_seconds: float
+
+
+class CoordinateManagementService:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session] = SessionFactory,
+        *,
+        geocoder: NominatimGeocodingService | None = None,
+    ) -> None:
+        self.session_factory = session_factory
+        self.geocoder = geocoder or NominatimGeocodingService()
+
+    def get_personnel_target(self, personnel_id: int) -> CoordinateTargetView:
+        with self.session_factory() as session:
+            personnel = PersonnelCoordinateRepository(session).get_by_id(personnel_id)
+            if personnel is None:
+                raise CoordinateTargetNotFoundError("Personel kaydı bulunamadı.")
+            return self._personnel_view(personnel)
+
+    def get_route_target(self, point_id: int) -> CoordinateTargetView:
+        with self.session_factory() as session:
+            point = RoutePointCoordinateRepository(session).get_detail(point_id)
+            if point is None:
+                raise CoordinateTargetNotFoundError("Güzergâh noktası bulunamadı.")
+            return self._route_view(point)
+
+    def search_personnel(
+        self,
+        personnel_id: int,
+        *,
+        force: bool = False,
+    ) -> GeocodingLookupResult:
+        return self._search_target("PERSONEL", personnel_id, force=force)
+
+    def search_route_point(
+        self,
+        point_id: int,
+        *,
+        force: bool = False,
+    ) -> GeocodingLookupResult:
+        return self._search_target("GUZERGAH", point_id, force=force)
+
+    def _search_target(
+        self,
+        target_type: CoordinateTargetType,
+        target_id: int,
+        *,
+        force: bool,
+    ) -> GeocodingLookupResult:
+        target = (
+            self.get_personnel_target(target_id)
+            if target_type == "PERSONEL"
+            else self.get_route_target(target_id)
+        )
+        if (
+            target.has_coordinates
+            and target.coordinate_status != "GUNCEL_DEGIL"
+            and not force
+        ):
+            return GeocodingLookupResult(
+                target=target,
+                candidates=(),
+                skipped_existing=True,
+            )
+        address = target.address_input()
+        cache_key = self._cache_key(address)
+        with self.session_factory() as session:
+            cached = AddressCacheRepository(session).get_by_normalized_address(cache_key)
+            if cached is not None and not force:
+                candidate = GeocodingCandidate(
+                    place_id=f"cache-{cached.id}",
+                    display_name="Daha önce onaylanmış yerel adres sonucu",
+                    latitude=cached.enlem,
+                    longitude=cached.boylam,
+                    city=target.city,
+                    district=target.district,
+                    neighborhood=target.neighborhood,
+                )
+                return GeocodingLookupResult(
+                    target=target,
+                    candidates=(CandidateReview(candidate, ()),),
+                    used_cache=True,
+                )
+        try:
+            response = self.geocoder.search(address)
+        except ExternalServiceError as error:
+            raise MapManagementError(str(error)) from error
+        if not response.candidates:
+            self._mark_not_found(target_type, target_id, address.signature())
+            return GeocodingLookupResult(
+                target=target,
+                candidates=(),
+                used_fallback=response.used_fallback,
+            )
+        return GeocodingLookupResult(
+            target=target,
+            candidates=tuple(
+                CandidateReview(candidate, compare_address(address, candidate))
+                for candidate in response.candidates
+            ),
+            used_fallback=response.used_fallback,
+        )
+
+    def confirm_personnel_candidate(
+        self,
+        personnel_id: int,
+        candidate: GeocodingCandidate,
+        *,
+        accept_found_address: bool = False,
+    ) -> CoordinateTargetView:
+        return self._confirm_candidate(
+            "PERSONEL",
+            personnel_id,
+            candidate,
+            accept_found_address=accept_found_address,
+        )
+
+    def confirm_route_candidate(
+        self,
+        point_id: int,
+        candidate: GeocodingCandidate,
+        *,
+        accept_found_address: bool = False,
+    ) -> CoordinateTargetView:
+        return self._confirm_candidate(
+            "GUZERGAH",
+            point_id,
+            candidate,
+            accept_found_address=accept_found_address,
+        )
+
+    def _confirm_candidate(
+        self,
+        target_type: CoordinateTargetType,
+        target_id: int,
+        candidate: GeocodingCandidate,
+        *,
+        accept_found_address: bool,
+    ) -> CoordinateTargetView:
+        latitude, longitude = self._validated_coordinates(
+            candidate.latitude,
+            candidate.longitude,
+        )
+        with session_scope(self.session_factory) as session:
+            target = self._get_model(session, target_type, target_id)
+            if accept_found_address:
+                if candidate.city:
+                    target.il = candidate.city
+                if candidate.district:
+                    target.ilce = candidate.district
+                if candidate.neighborhood:
+                    target.mahalle = candidate.neighborhood
+            address = self._model_address(target)
+            target.enlem = latitude
+            target.boylam = longitude
+            target.koordinat_durumu = "COZUMLENDI"
+            target.koordinat_adres_ozeti = address.signature()
+            if target_type == "GUZERGAH":
+                RouteGeometryRepository(session).mark_stale(target.servis_vardiya_id)
+            cache_repository = AddressCacheRepository(session)
+            cache_key = self._cache_key(address)
+            if cache_repository.get_by_normalized_address(cache_key) is None:
+                cache_repository.add(
+                    AdresOnbellegi(
+                        normalize_adres=cache_key,
+                        orijinal_adres=address.full_query(),
+                        enlem=latitude,
+                        boylam=longitude,
+                        kaynak="NOMINATIM_ONAYLI",
+                    )
+                )
+            view = self._model_view(target_type, target)
+        return view
+
+    def set_personnel_coordinates(
+        self,
+        personnel_id: int,
+        latitude: object,
+        longitude: object,
+    ) -> CoordinateTargetView:
+        return self._set_manual("PERSONEL", personnel_id, latitude, longitude)
+
+    def set_route_coordinates(
+        self,
+        point_id: int,
+        latitude: object,
+        longitude: object,
+    ) -> CoordinateTargetView:
+        return self._set_manual("GUZERGAH", point_id, latitude, longitude)
+
+    def _set_manual(
+        self,
+        target_type: CoordinateTargetType,
+        target_id: int,
+        latitude: object,
+        longitude: object,
+    ) -> CoordinateTargetView:
+        resolved_latitude, resolved_longitude = self._validated_coordinates(
+            latitude,
+            longitude,
+        )
+        with session_scope(self.session_factory) as session:
+            target = self._get_model(session, target_type, target_id)
+            target.enlem = resolved_latitude
+            target.boylam = resolved_longitude
+            target.koordinat_durumu = "MANUEL"
+            target.koordinat_adres_ozeti = self._model_address(target).signature()
+            if target_type == "GUZERGAH":
+                RouteGeometryRepository(session).mark_stale(target.servis_vardiya_id)
+            view = self._model_view(target_type, target)
+        return view
+
+    def bulk_geocode_personnel(
+        self,
+        progress: Callable[[int, int], None],
+        cancelled: Callable[[], bool],
+    ) -> BulkGeocodingResult:
+        with self.session_factory() as session:
+            ids = [
+                item.id
+                for item in PersonnelCoordinateRepository(session).list_missing_or_stale()
+            ]
+        return self._bulk("PERSONEL", ids, progress, cancelled)
+
+    def bulk_geocode_route_points(
+        self,
+        progress: Callable[[int, int], None],
+        cancelled: Callable[[], bool],
+    ) -> BulkGeocodingResult:
+        with self.session_factory() as session:
+            ids = [
+                item.id
+                for item in RoutePointCoordinateRepository(session).list_missing_or_stale()
+            ]
+        return self._bulk("GUZERGAH", ids, progress, cancelled)
+
+    def _bulk(
+        self,
+        target_type: CoordinateTargetType,
+        target_ids: list[int],
+        progress: Callable[[int, int], None],
+        cancelled: Callable[[], bool],
+    ) -> BulkGeocodingResult:
+        success = not_found = warnings = failures = 0
+        total = len(target_ids)
+        was_cancelled = False
+        for index, target_id in enumerate(target_ids, start=1):
+            if cancelled():
+                was_cancelled = True
+                break
+            try:
+                lookup = self._search_target(target_type, target_id, force=False)
+                if not lookup.candidates:
+                    not_found += 1
+                elif len(lookup.candidates) == 1 and not lookup.candidates[0].mismatches:
+                    review = lookup.candidates[0]
+                    if target_type == "PERSONEL":
+                        self.confirm_personnel_candidate(target_id, review.candidate)
+                    else:
+                        self.confirm_route_candidate(target_id, review.candidate)
+                    success += 1
+                else:
+                    warnings += 1
+            except Exception:
+                failures += 1
+                logger.exception(
+                    "Toplu koordinat çözümlemede bir kayıt başarısız oldu: tür=%s, id=%s",
+                    target_type,
+                    target_id,
+                )
+            progress(index, total)
+        return BulkGeocodingResult(
+            total_count=total,
+            success_count=success,
+            not_found_count=not_found,
+            warning_count=warnings,
+            failure_count=failures,
+            cancelled=was_cancelled,
+        )
+
+    def _mark_not_found(
+        self,
+        target_type: CoordinateTargetType,
+        target_id: int,
+        address_signature: str,
+    ) -> None:
+        with session_scope(self.session_factory) as session:
+            target = self._get_model(session, target_type, target_id)
+            target.koordinat_durumu = "BULUNAMADI"
+            target.koordinat_adres_ozeti = address_signature
+
+    @staticmethod
+    def _validated_coordinates(latitude: object, longitude: object) -> tuple[float, float]:
+        try:
+            resolved_latitude = normalize_coordinate(latitude, latitude=True)
+            resolved_longitude = normalize_coordinate(longitude, latitude=False)
+        except ValueNormalizationError as error:
+            raise CoordinateValidationError(error.message) from error
+        if resolved_latitude is None or resolved_longitude is None:
+            raise CoordinateValidationError("Enlem ve boylam birlikte doldurulmalıdır.")
+        return resolved_latitude, resolved_longitude
+
+    @staticmethod
+    def _cache_key(address: AddressInput) -> str:
+        return comparison_key(address.full_query()) or address.signature()
+
+    @staticmethod
+    def _get_model(
+        session: Session,
+        target_type: CoordinateTargetType,
+        target_id: int,
+    ) -> Personel | ServisGuzergahNoktasi:
+        target = (
+            PersonnelCoordinateRepository(session).get_by_id(target_id)
+            if target_type == "PERSONEL"
+            else RoutePointCoordinateRepository(session).get_detail(target_id)
+        )
+        if target is None:
+            raise CoordinateTargetNotFoundError("Koordinat kaydı bulunamadı.")
+        return target
+
+    @staticmethod
+    def _model_address(target: Personel | ServisGuzergahNoktasi) -> AddressInput:
+        return AddressInput(
+            address=target.acik_adres,
+            city=target.il,
+            district=target.ilce,
+            neighborhood=target.mahalle,
+        )
+
+    @classmethod
+    def _model_view(
+        cls,
+        target_type: CoordinateTargetType,
+        target: Personel | ServisGuzergahNoktasi,
+    ) -> CoordinateTargetView:
+        return (
+            cls._personnel_view(target)
+            if target_type == "PERSONEL"
+            else cls._route_view(target)
+        )
+
+    @staticmethod
+    def _personnel_view(personnel: Personel) -> CoordinateTargetView:
+        return CoordinateTargetView(
+            target_type="PERSONEL",
+            id=personnel.id,
+            label=f"{personnel.sicil_no} - {personnel.ad_soyad or 'Adsız personel'}",
+            address=personnel.acik_adres,
+            city=personnel.il,
+            district=personnel.ilce,
+            neighborhood=personnel.mahalle,
+            latitude=personnel.enlem,
+            longitude=personnel.boylam,
+            coordinate_status=personnel.koordinat_durumu,
+        )
+
+    @staticmethod
+    def _route_view(point: ServisGuzergahNoktasi) -> CoordinateTargetView:
+        return CoordinateTargetView(
+            target_type="GUZERGAH",
+            id=point.id,
+            label=f"Sıra {point.sira_no} - {point.nokta_adi or point.mahalle or point.ilce}",
+            address=point.acik_adres,
+            city=point.il,
+            district=point.ilce,
+            neighborhood=point.mahalle,
+            latitude=point.enlem,
+            longitude=point.boylam,
+            coordinate_status=point.koordinat_durumu,
+        )
+
+
+class RouteCalculationService:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session] = SessionFactory,
+        *,
+        router: OsrmRoutingService | None = None,
+    ) -> None:
+        self.session_factory = session_factory
+        self.router = router or OsrmRoutingService()
+
+    def calculate_shift(self, shift_id: int) -> RouteCalculationResult:
+        with self.session_factory() as session:
+            shift = ServisVardiyasiRepository(session).get_detail(shift_id)
+            if shift is None:
+                raise RouteCalculationError("Servis-vardiya kaydı bulunamadı.")
+            points = RoutePointRepository(session).list_for_shift(
+                shift_id,
+                include_inactive=False,
+            )
+            signature = self.point_signature(points)
+            coordinates = self._coordinates(points)
+        try:
+            calculated = self.router.calculate(coordinates)
+        except ExternalServiceError as error:
+            raise RouteCalculationError(str(error)) from error
+
+        with session_scope(self.session_factory) as session:
+            current_points = RoutePointRepository(session).list_for_shift(
+                shift_id,
+                include_inactive=False,
+            )
+            if self.point_signature(current_points) != signature:
+                raise RouteCalculationError(
+                    "Güzergâh noktaları hesaplama sırasında değişti. Lütfen yeniden deneyin."
+                )
+            repository = RouteGeometryRepository(session)
+            geometry = repository.get_for_shift(shift_id)
+            if geometry is None:
+                geometry = repository.add(
+                    ServisGuzergahGeometrisi(
+                        servis_vardiya_id=shift_id,
+                        geojson="{}",
+                        toplam_mesafe_metre=0,
+                        toplam_sure_saniye=0,
+                        nokta_ozeti=signature,
+                    )
+                )
+            geometry.geojson = json.dumps(calculated.geometry, ensure_ascii=False)
+            geometry.toplam_mesafe_metre = calculated.distance_meters
+            geometry.toplam_sure_saniye = calculated.duration_seconds
+            geometry.nokta_ozeti = signature
+            geometry.guncel_mi = True
+            geometry.aktif_mi = True
+            geometry.hesaplanma_tarihi = datetime.now()
+        map_data = self.get_shift_map_data(shift_id)
+        return RouteCalculationResult(
+            map_data=map_data,
+            distance_meters=calculated.distance_meters,
+            duration_seconds=calculated.duration_seconds,
+        )
+
+    def get_shift_map_data(self, shift_id: int) -> RouteMapData:
+        with self.session_factory() as session:
+            shift = ServisVardiyasiRepository(session).get_detail(shift_id)
+            if shift is None:
+                raise RouteCalculationError("Servis-vardiya kaydı bulunamadı.")
+            points = RoutePointRepository(session).list_for_shift(shift_id)
+            active_points = [point for point in points if point.aktif_mi]
+            signature = self.point_signature(active_points)
+            stored = RouteGeometryRepository(session).get_for_shift(shift_id)
+            geometry = None
+            distance = duration = None
+            is_current = False
+            if stored is not None:
+                is_current = stored.guncel_mi and stored.nokta_ozeti == signature
+                distance = stored.toplam_mesafe_metre
+                duration = stored.toplam_sure_saniye
+                try:
+                    decoded = json.loads(stored.geojson)
+                    if isinstance(decoded, dict):
+                        geometry = decoded
+                except json.JSONDecodeError:
+                    logger.warning("Saklanan rota geometrisi okunamadı: vardiya_id=%s", shift_id)
+            point_views = self._point_views(active_points)
+            return RouteMapData(
+                service_shift_id=shift.id,
+                service_code=shift.servis.servis_kodu,
+                shift=shift.vardiya_turu.value,
+                collar=shift.yaka_turu.value,
+                points=point_views,
+                geometry=geometry,
+                distance_meters=distance,
+                duration_seconds=duration,
+                route_is_current=is_current,
+            )
+
+    @staticmethod
+    def _coordinates(
+        points: list[ServisGuzergahNoktasi],
+    ) -> tuple[RouteCoordinate, ...]:
+        if len(points) < 2:
+            raise RouteCalculationError(
+                "Rota hesaplamak için en az iki aktif güzergâh noktası gerekir."
+            )
+        missing = [point.sira_no for point in points if point.enlem is None or point.boylam is None]
+        if missing:
+            raise RouteCalculationError(
+                "Rota hesaplanmadan önce şu sıra numaralarının koordinatları tamamlanmalıdır: "
+                + ", ".join(str(value) for value in missing)
+            )
+        return tuple(
+            RouteCoordinate(latitude=float(point.enlem), longitude=float(point.boylam))
+            for point in points
+        )
+
+    @staticmethod
+    def point_signature(points: list[ServisGuzergahNoktasi]) -> str:
+        content = "|".join(
+            f"{point.id}:{point.sira_no}:{point.enlem}:{point.boylam}:{int(point.aktif_mi)}"
+            for point in points
+        )
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _point_views(
+        points: list[ServisGuzergahNoktasi],
+    ) -> tuple[RoutePointMapView, ...]:
+        count = len(points)
+        views: list[RoutePointMapView] = []
+        for index, point in enumerate(points):
+            if count == 1:
+                position = "Başlangıç / Bitiş"
+            elif index == 0:
+                position = "Başlangıç"
+            elif index == count - 1:
+                position = "Bitiş"
+            else:
+                position = "Ara Nokta"
+            views.append(
+                RoutePointMapView(
+                    id=point.id,
+                    sequence=point.sira_no,
+                    label=point.nokta_adi or point.mahalle or point.ilce or "İsimsiz nokta",
+                    district=point.ilce,
+                    neighborhood=point.mahalle,
+                    latitude=point.enlem,
+                    longitude=point.boylam,
+                    active=point.aktif_mi,
+                    position_label=position,
+                )
+            )
+        return tuple(views)

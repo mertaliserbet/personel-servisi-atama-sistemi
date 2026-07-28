@@ -15,11 +15,16 @@ from database.models import (
     VardiyaTuru,
     YakaTuru,
 )
-from database.repositories import RoutePointRepository, ServisRepository
+from database.repositories import (
+    RouteGeometryRepository,
+    RoutePointRepository,
+    ServisRepository,
+)
 from database.session import SessionFactory, session_scope
 from excel_import.models import AnalysisReport, PreviewRow
 from normalization.result import RecordType
 from normalization.text import comparison_key
+from services.geocoding import AddressInput
 from services.service_capacity_import import ImportAction
 
 
@@ -373,6 +378,7 @@ class ServiceRouteImportService:
         plan: ServiceRouteImportPlan,
     ) -> ServiceRouteImportResult:
         repository = RoutePointRepository(session)
+        affected_shift_ids: set[int] = set()
         added = 0
         for entry in plan.entries:
             if entry.action is not ImportAction.ADD:
@@ -398,10 +404,29 @@ class ServiceRouteImportService:
                     boylam=record.longitude,
                     aktif_mi=record.active,
                     durak_mi=False,
+                    koordinat_durumu=(
+                        "MEVCUT"
+                        if record.latitude is not None and record.longitude is not None
+                        else "EKSIK"
+                    ),
+                    koordinat_adres_ozeti=(
+                        AddressInput(
+                            address=record.address,
+                            city=record.city,
+                            district=record.district,
+                            neighborhood=record.neighborhood,
+                        ).signature()
+                        if record.latitude is not None and record.longitude is not None
+                        else None
+                    ),
                 )
             )
+            affected_shift_ids.add(entry.service_shift_id)
             added += 1
             self._after_point_added(session, point, added)
+        geometry_repository = RouteGeometryRepository(session)
+        for shift_id in affected_shift_ids:
+            geometry_repository.mark_stale(shift_id)
         return ServiceRouteImportResult(
             added_count=added,
             skipped_count=plan.skip_count,

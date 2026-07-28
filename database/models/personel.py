@@ -39,6 +39,13 @@ class Personel(ActiveMixin, TimestampMixin, Base):
     mahalle: Mapped[str | None] = mapped_column(String(200))
     enlem: Mapped[float | None] = mapped_column(Float)
     boylam: Mapped[float | None] = mapped_column(Float)
+    koordinat_durumu: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="EKSIK",
+        server_default="EKSIK",
+    )
+    koordinat_adres_ozeti: Mapped[str | None] = mapped_column(String(64))
     vardiya_turu: Mapped[VardiyaTuru] = mapped_column(
         enum_type(VardiyaTuru, "personel_vardiya_turu"),
         nullable=False,
