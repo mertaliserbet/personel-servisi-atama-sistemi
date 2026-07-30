@@ -78,9 +78,19 @@ class RouteManagementWidget(QWidget):
         list_group = QGroupBox("Sıralı Güzergâh Noktaları")
         list_layout = QVBoxLayout(list_group)
         self.point_table = QTableWidget()
-        self.point_table.setColumnCount(7)
+        self.point_table.setColumnCount(9)
         self.point_table.setHorizontalHeaderLabels(
-            ["Sıra", "Konum", "İl", "İlçe", "Mahalle", "Nokta/Durak", "Durum"]
+            [
+                "Sıra",
+                "Konum",
+                "İl",
+                "İlçe",
+                "Mahalle",
+                "Sokak",
+                "Cadde",
+                "Nokta/Durak",
+                "Durum",
+            ]
         )
         self.point_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -106,6 +116,8 @@ class RouteManagementWidget(QWidget):
         self.city_edit = QLineEdit()
         self.district_edit = QLineEdit()
         self.neighborhood_edit = QLineEdit()
+        self.street_edit = QLineEdit()
+        self.avenue_edit = QLineEdit()
         self.point_name_edit = QLineEdit()
         self.address_edit = QLineEdit()
         self.description_edit = QTextEdit()
@@ -116,9 +128,11 @@ class RouteManagementWidget(QWidget):
         self.longitude_edit.setPlaceholderText("İsteğe bağlı")
         self.active_check = QCheckBox("Güzergâh noktası aktif")
         form.addRow("Sıra No*:", self.sequence_spin)
-        form.addRow("İl:", self.city_edit)
-        form.addRow("İlçe:", self.district_edit)
         form.addRow("Mahalle:", self.neighborhood_edit)
+        form.addRow("Sokak:", self.street_edit)
+        form.addRow("Cadde:", self.avenue_edit)
+        form.addRow("İlçe:", self.district_edit)
+        form.addRow("İl:", self.city_edit)
         form.addRow("Nokta/Durak Adı:", self.point_name_edit)
         form.addRow("Açık Adres:", self.address_edit)
         form.addRow("Açıklama:", self.description_edit)
@@ -229,6 +243,8 @@ class RouteManagementWidget(QWidget):
                 point.city or "",
                 point.district or "",
                 point.neighborhood or "",
+                point.street or "",
+                point.avenue or "",
                 point.point_name or "",
                 "Aktif" if point.active else "Pasif",
             )
@@ -263,6 +279,8 @@ class RouteManagementWidget(QWidget):
         self.city_edit.setText(point.city or "")
         self.district_edit.setText(point.district or "")
         self.neighborhood_edit.setText(point.neighborhood or "")
+        self.street_edit.setText(point.street or "")
+        self.avenue_edit.setText(point.avenue or "")
         self.point_name_edit.setText(point.point_name or "")
         self.address_edit.setText(point.address or "")
         self.description_edit.setPlainText(point.description or "")
@@ -303,6 +321,8 @@ class RouteManagementWidget(QWidget):
         self.city_edit.clear()
         self.district_edit.clear()
         self.neighborhood_edit.clear()
+        self.street_edit.clear()
+        self.avenue_edit.clear()
         self.point_name_edit.clear()
         self.address_edit.clear()
         self.description_edit.clear()
@@ -330,6 +350,8 @@ class RouteManagementWidget(QWidget):
             city=self.city_edit.text(),
             district=self.district_edit.text(),
             neighborhood=self.neighborhood_edit.text(),
+            street=self.street_edit.text(),
+            avenue=self.avenue_edit.text(),
             point_name=self.point_name_edit.text(),
             address=self.address_edit.text(),
             description=self.description_edit.toPlainText(),

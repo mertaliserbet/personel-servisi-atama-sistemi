@@ -34,7 +34,7 @@ from services.geocoding import (
     AddressMismatch,
     GeocodingCandidate,
     NominatimGeocodingService,
-    compare_address,
+    assess_candidate,
 )
 from services.routing import OsrmRoutingService, RouteCoordinate
 
@@ -69,6 +69,8 @@ class CoordinateTargetView:
     city: str | None
     district: str | None
     neighborhood: str | None
+    street: str | None
+    avenue: str | None
     latitude: float | None
     longitude: float | None
     coordinate_status: str
@@ -83,6 +85,8 @@ class CoordinateTargetView:
             city=self.city,
             district=self.district,
             neighborhood=self.neighborhood,
+            street=self.street,
+            avenue=self.avenue,
         )
 
 
@@ -90,6 +94,9 @@ class CoordinateTargetView:
 class CandidateReview:
     candidate: GeocodingCandidate
     mismatches: tuple[AddressMismatch, ...]
+    score: int = 0
+    status: str = "EK KONTROL GEREKLİ"
+    details: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,10 +226,20 @@ class CoordinateManagementService:
                     city=target.city,
                     district=target.district,
                     neighborhood=target.neighborhood,
+                    street=target.street,
+                    avenue=target.avenue,
                 )
                 return GeocodingLookupResult(
                     target=target,
-                    candidates=(CandidateReview(candidate, ()),),
+                    candidates=(
+                        CandidateReview(
+                            candidate,
+                            (),
+                            score=100,
+                            status="YEREL ONAYLI SONUÇ",
+                            details=("Daha önce kullanıcı tarafından onaylandı",),
+                        ),
+                    ),
                     used_cache=True,
                 )
         try:
@@ -236,12 +253,21 @@ class CoordinateManagementService:
                 candidates=(),
                 used_fallback=response.used_fallback,
             )
+        reviews: list[CandidateReview] = []
+        for candidate in response.candidates:
+            assessment = assess_candidate(address, candidate)
+            reviews.append(
+                CandidateReview(
+                    candidate=candidate,
+                    mismatches=assessment.mismatches,
+                    score=assessment.score,
+                    status=assessment.status,
+                    details=assessment.details,
+                )
+            )
         return GeocodingLookupResult(
             target=target,
-            candidates=tuple(
-                CandidateReview(candidate, compare_address(address, candidate))
-                for candidate in response.candidates
-            ),
+            candidates=tuple(reviews),
             used_fallback=response.used_fallback,
         )
 
@@ -294,6 +320,10 @@ class CoordinateManagementService:
                     target.ilce = candidate.district
                 if candidate.neighborhood:
                     target.mahalle = candidate.neighborhood
+                if candidate.street:
+                    target.sokak = candidate.street
+                if candidate.avenue:
+                    target.cadde = candidate.avenue
             address = self._model_address(target)
             target.enlem = latitude
             target.boylam = longitude
@@ -470,6 +500,8 @@ class CoordinateManagementService:
             city=target.il,
             district=target.ilce,
             neighborhood=target.mahalle,
+            street=target.sokak,
+            avenue=target.cadde,
         )
 
     @classmethod
@@ -494,6 +526,8 @@ class CoordinateManagementService:
             city=personnel.il,
             district=personnel.ilce,
             neighborhood=personnel.mahalle,
+            street=personnel.sokak,
+            avenue=personnel.cadde,
             latitude=personnel.enlem,
             longitude=personnel.boylam,
             coordinate_status=personnel.koordinat_durumu,
@@ -509,6 +543,8 @@ class CoordinateManagementService:
             city=point.il,
             district=point.ilce,
             neighborhood=point.mahalle,
+            street=point.sokak,
+            avenue=point.cadde,
             latitude=point.enlem,
             longitude=point.boylam,
             coordinate_status=point.koordinat_durumu,
@@ -625,6 +661,17 @@ class RouteCalculationService:
                 "Rota hesaplanmadan önce şu sıra numaralarının koordinatları tamamlanmalıdır: "
                 + ", ".join(str(value) for value in missing)
             )
+        stale = [
+            point.sira_no
+            for point in points
+            if point.koordinat_durumu in {"BULUNAMADI", "GUNCEL_DEGIL"}
+        ]
+        if stale:
+            raise RouteCalculationError(
+                "Rota hesaplanmadan önce şu sıra numaralarının güncel olmayan "
+                "koordinatları yeniden çözülmelidir: "
+                + ", ".join(str(value) for value in stale)
+            )
         return tuple(
             RouteCoordinate(latitude=float(point.enlem), longitude=float(point.boylam))
             for point in points
@@ -633,7 +680,8 @@ class RouteCalculationService:
     @staticmethod
     def point_signature(points: list[ServisGuzergahNoktasi]) -> str:
         content = "|".join(
-            f"{point.id}:{point.sira_no}:{point.enlem}:{point.boylam}:{int(point.aktif_mi)}"
+            f"{point.id}:{point.sira_no}:{point.enlem}:{point.boylam}:"
+            f"{point.koordinat_durumu}:{int(point.aktif_mi)}"
             for point in points
         )
         return hashlib.sha256(content.encode("utf-8")).hexdigest()

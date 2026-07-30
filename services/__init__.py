@@ -70,10 +70,12 @@ from services.external_http import (
 from services.geocoding import (
     AddressInput,
     AddressMismatch,
+    CandidateAssessment,
     GeocodingCandidate,
     GeocodingError,
     GeocodingSearchResponse,
     NominatimGeocodingService,
+    assess_candidate,
     compare_address,
 )
 from services.map_management import (
@@ -150,6 +152,7 @@ __all__ = [
     "ServiceRouteImportService",
     "AddressInput",
     "AddressMismatch",
+    "CandidateAssessment",
     "BulkGeocodingResult",
     "CandidateReview",
     "CoordinateManagementService",
@@ -175,5 +178,6 @@ __all__ = [
     "RoutePointMapView",
     "RoutingError",
     "RoutingResult",
+    "assess_candidate",
     "compare_address",
 ]

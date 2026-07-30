@@ -8,6 +8,7 @@ from datetime import date
 from normalization import (
     RecordType,
     ValueNormalizationError,
+    extract_address_roads,
     map_column_name,
     map_columns,
     normalize_collar,
@@ -52,6 +53,20 @@ class ColumnNormalizationTests(unittest.TestCase):
             map_column_name("YENI SİCİL NO", RecordType.PERSONEL),
             "SICIL_NO",
         )
+
+    def test_personnel_and_route_street_avenue_columns_are_mapped(self) -> None:
+        for record_type in (RecordType.PERSONEL, RecordType.SERVIS_GUZERGAH):
+            self.assertEqual(map_column_name("SOKAK ADI", record_type), "SOKAK")
+            self.assertEqual(map_column_name("CADDE ADI", record_type), "CADDE")
+
+    def test_open_address_separates_street_and_avenue(self) -> None:
+        roads = extract_address_roads(
+            "YENİ MAH. 33192 SK. ATATÜRK CAD. NO:9 MEZİTLİ MERSİN"
+        )
+        self.assertEqual(roads.street, "33192 Sokak")
+        self.assertEqual(roads.avenue, "ATATÜRK Caddesi")
+        compact = extract_address_roads("YENİ MAH. 3907.SK NO:20")
+        self.assertEqual(compact.street, "3907. Sokak")
 
     def test_all_service_capacity_columns_are_mapped(self) -> None:
         result = map_columns(

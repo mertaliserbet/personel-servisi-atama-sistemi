@@ -150,6 +150,8 @@ class PersonnelImportTestCase(unittest.TestCase):
         self.assertEqual(person.ad, "Ayşe")
         self.assertEqual(person.soyad, "Yılmaz")
         self.assertEqual(person.acik_adres, "Atatürk Cad. No: 1")
+        self.assertIsNone(person.sokak)
+        self.assertEqual(person.cadde, "Atatürk Caddesi")
         self.assertEqual(result.added_count, 1)
 
     def test_same_personnel_number_is_not_created_twice(self) -> None:

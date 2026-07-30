@@ -201,6 +201,8 @@ def validate_personnel_row(
     city = _normalize_required_text(result, "IL", canonical_row.get("IL"), "İl")
     _normalize_required_text(result, "ILCE", canonical_row.get("ILCE"), "İlçe")
     _normalize_required_text(result, "MAHALLE", canonical_row.get("MAHALLE"), "Mahalle")
+    _normalize_optional_text(result, "SOKAK", canonical_row.get("SOKAK"), "Sokak")
+    _normalize_optional_text(result, "CADDE", canonical_row.get("CADDE"), "Cadde")
     _normalize_coordinates(result, canonical_row)
     _normalize_with_error(
         result,
@@ -351,6 +353,8 @@ def validate_service_route_row(
         canonical_row.get("MAHALLE"),
         "Mahalle",
     )
+    _normalize_optional_text(result, "SOKAK", canonical_row.get("SOKAK"), "Sokak")
+    _normalize_optional_text(result, "CADDE", canonical_row.get("CADDE"), "Cadde")
     point_name = _normalize_optional_text(
         result,
         "NOKTA_ADI",

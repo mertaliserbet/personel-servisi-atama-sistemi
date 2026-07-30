@@ -136,6 +136,8 @@ class ServisGuzergahNoktasi(ActiveMixin, TimestampMixin, Base):
     il: Mapped[str | None] = mapped_column(String(100))
     ilce: Mapped[str | None] = mapped_column(String(100))
     mahalle: Mapped[str | None] = mapped_column(String(200))
+    sokak: Mapped[str | None] = mapped_column(String(300))
+    cadde: Mapped[str | None] = mapped_column(String(300))
     enlem: Mapped[float | None] = mapped_column(Float)
     boylam: Mapped[float | None] = mapped_column(Float)
     koordinat_durumu: Mapped[str] = mapped_column(

@@ -110,8 +110,81 @@ class DatabaseTestCase(unittest.TestCase):
             }
             self.assertTrue({"ad", "soyad"}.issubset(columns))
             self.assertTrue(
-                {"koordinat_durumu", "koordinat_adres_ozeti"}.issubset(columns)
+                {
+                    "koordinat_durumu",
+                    "koordinat_adres_ozeti",
+                    "sokak",
+                    "cadde",
+                }.issubset(columns)
             )
+        finally:
+            legacy_engine.dispose()
+
+    def test_existing_personnel_street_is_extracted_from_open_address(self) -> None:
+        legacy_engine = create_database_engine(
+            Path(self.temporary_directory.name) / "legacy_personnel_street.db"
+        )
+        try:
+            with legacy_engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE personel ("
+                    "id INTEGER PRIMARY KEY, "
+                    "acik_adres VARCHAR(1000)"
+                    ")"
+                )
+                connection.exec_driver_sql(
+                    "INSERT INTO personel (id, acik_adres) VALUES (1, ?)",
+                    (
+                        "YENİ MAH. 33192. SK. TEST SİTESİ NO:9 "
+                        "MEZİTLİ MERSİN",
+                    ),
+                )
+            initialize_database(legacy_engine)
+            with legacy_engine.connect() as connection:
+                street, avenue = connection.exec_driver_sql(
+                    "SELECT sokak, cadde FROM personel WHERE id = 1"
+                ).one()
+            self.assertEqual(street, "33192. Sokak")
+            self.assertIsNone(avenue)
+        finally:
+            legacy_engine.dispose()
+
+    def test_legacy_combined_road_is_preserved_and_split_without_deleting_record(self) -> None:
+        legacy_engine = create_database_engine(
+            Path(self.temporary_directory.name) / "legacy_combined_road.db"
+        )
+        try:
+            with legacy_engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE personel ("
+                    "id INTEGER PRIMARY KEY, "
+                    "acik_adres VARCHAR(1000), "
+                    "sokak_cadde VARCHAR(300), "
+                    "enlem FLOAT, "
+                    "boylam FLOAT, "
+                    "koordinat_durumu VARCHAR(30) NOT NULL DEFAULT 'EKSIK'"
+                    ")"
+                )
+                connection.exec_driver_sql(
+                    "INSERT INTO personel "
+                    "(id, sokak_cadde, enlem, boylam, koordinat_durumu) "
+                    "VALUES (1, 'Atatürk Cad.', 36.8, 34.6, 'MEVCUT')"
+                )
+            initialize_database(legacy_engine)
+            with legacy_engine.connect() as connection:
+                row = connection.exec_driver_sql(
+                    "SELECT sokak_cadde, sokak, cadde, enlem, boylam, "
+                    "koordinat_durumu FROM personel WHERE id = 1"
+                ).one()
+                count = connection.exec_driver_sql(
+                    "SELECT COUNT(*) FROM personel"
+                ).scalar_one()
+            self.assertEqual(count, 1)
+            self.assertEqual(row[0], "Atatürk Cad.")
+            self.assertIsNone(row[1])
+            self.assertEqual(row[2], "Atatürk Caddesi")
+            self.assertEqual((row[3], row[4]), (36.8, 34.6))
+            self.assertEqual(row[5], "GUNCEL_DEGIL")
         finally:
             legacy_engine.dispose()
 

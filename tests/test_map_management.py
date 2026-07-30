@@ -46,6 +46,7 @@ from services import (
     RouteManagementService,
     RoutePointFormData,
     RoutingResult,
+    assess_candidate,
     compare_address,
 )
 from services.map_rendering import render_map_html
@@ -108,6 +109,8 @@ def candidate(
     city: str = "MERSİN",
     district: str = "YENİŞEHİR",
     neighborhood: str = "ÇİFTLİK",
+    street: str | None = None,
+    avenue: str | None = None,
 ) -> GeocodingCandidate:
     return GeocodingCandidate(
         place_id=name,
@@ -117,6 +120,8 @@ def candidate(
         city=city,
         district=district,
         neighborhood=neighborhood,
+        street=street,
+        avenue=avenue,
     )
 
 
@@ -274,6 +279,52 @@ class MapManagementTestCase(unittest.TestCase):
         )
         self.assertEqual({item.field for item in mismatches}, {"İl", "İlçe", "Mahalle"})
 
+    def test_street_and_avenue_mismatch_is_detected_without_silent_change(self) -> None:
+        mismatches = compare_address(
+            AddressInput(
+                "Adres",
+                "MERSİN",
+                "MEZİTLİ",
+                "YENİ MAHALLE",
+                street="33192. Sokak",
+                avenue="Atatürk Caddesi",
+            ),
+            candidate(
+                city="MERSİN",
+                district="MEZİTLİ",
+                neighborhood="Yeni Mahallesi",
+                street="33193. Sokak",
+                avenue=None,
+            ),
+        )
+        self.assertEqual({item.field for item in mismatches}, {"Sokak", "Cadde"})
+
+    def test_address_queries_are_detailed_to_general_and_do_not_repeat_parts(self) -> None:
+        address = AddressInput(
+            "Arya Sitesi Kat:5 No:9",
+            "Mersin",
+            "Mezitli",
+            "Yeni Mahalle",
+            street="33192. Sokak",
+            avenue="Gazi Mustafa Kemal Bulvarı",
+        )
+        queries = address.controlled_queries()
+        self.assertEqual(len(queries), 4)
+        self.assertIn("Arya Sitesi", queries[0])
+        self.assertIn("33192. Sokak", queries[0])
+        self.assertNotIn("Arya Sitesi", queries[1])
+        self.assertNotIn("33192. Sokak", queries[2])
+        self.assertNotIn("Yeni Mahalle", queries[3])
+        duplicate_safe = AddressInput(
+            "33192. Sokak, Yeni Mahalle, Mezitli, Mersin",
+            "Mersin",
+            "Mezitli",
+            "Yeni Mahalle",
+            street="33192. Sokak",
+        ).full_query()
+        self.assertEqual(duplicate_safe.casefold().count("33192"), 1)
+        self.assertEqual(duplicate_safe.casefold().count("yeni mahalle"), 1)
+
     def test_existing_coordinates_are_not_queried_without_force(self) -> None:
         personnel_id = self._seed_personnel(latitude=36.8, longitude=34.6)
         geocoder = StubGeocoder({})
@@ -299,6 +350,8 @@ class MapManagementTestCase(unittest.TestCase):
                         },
                     }
                 ],
+                [],
+                [],
             ]
         )
         geocoder = NominatimGeocodingService(
@@ -309,9 +362,271 @@ class MapManagementTestCase(unittest.TestCase):
             AddressInput("Bilinmeyen Sokak", "Mersin", "Yenişehir", "Çiftlik")
         )
         self.assertTrue(result.used_fallback)
-        self.assertEqual(len(http.calls), 2)
+        self.assertEqual(result.queries_attempted, 3)
+        self.assertEqual(len(http.calls), 4)
         self.assertIn("Bilinmeyen Sokak", str(http.calls[0][1]["q"]))
         self.assertNotIn("Bilinmeyen Sokak", str(http.calls[1][1]["q"]))
+        self.assertEqual(http.calls[-1][0], geocoder.reverse_url)
+
+    def test_nominatim_tries_extracted_street_before_neighborhood_fallback(self) -> None:
+        http = QueueHttpClient(
+            [
+                [],
+                [
+                    {
+                        "place_id": 2,
+                        "display_name": "33192. Sokak, Yeni Mahallesi, Mezitli, Mersin",
+                        "lat": "36.755",
+                        "lon": "34.539",
+                        "address": {
+                            "province": "Mersin",
+                            "town": "Mezitli",
+                            "neighbourhood": "Yeni Mahallesi",
+                        },
+                    }
+                ],
+            ]
+        )
+        geocoder = NominatimGeocodingService(
+            http_client=http,
+            minimum_interval_seconds=0,
+        )
+        result = geocoder.search(
+            AddressInput(
+                "Yeni mahalle 33192. sokak Arya Mezitli 1 Sitesi Kat:5 No:9",
+                "Mersin",
+                "Mezitli",
+                "Yeni mahalle",
+            )
+        )
+        self.assertTrue(result.used_fallback)
+        self.assertEqual(len(http.calls), 2)
+        street_query = str(http.calls[1][1]["q"])
+        self.assertIn("33192. Sokak", street_query)
+        self.assertIn("Yeni mahalle", street_query)
+        self.assertIn("Mezitli", street_query)
+        self.assertNotIn("Sitesi", street_query)
+        self.assertNotIn("Kat", street_query)
+
+    def test_nominatim_result_exposes_separate_street_and_avenue_fields(self) -> None:
+        http = QueueHttpClient(
+            [
+                [
+                    {
+                        "place_id": 3,
+                        "display_name": "Atatürk Caddesi, Mezitli, Mersin",
+                        "lat": "36.75",
+                        "lon": "34.54",
+                        "address": {
+                            "province": "Mersin",
+                            "town": "Mezitli",
+                            "neighbourhood": "Yeni Mahallesi",
+                            "road": "Atatürk Caddesi",
+                        },
+                    }
+                ]
+            ]
+        )
+        result = NominatimGeocodingService(
+            http_client=http,
+            minimum_interval_seconds=0,
+        ).search(AddressInput("Atatürk Caddesi", "Mersin", "Mezitli", "Yeni"))
+        self.assertIsNone(result.candidates[0].street)
+        self.assertEqual(result.candidates[0].avenue, "Atatürk Caddesi")
+
+    def test_missing_structured_neighborhood_can_match_display_name(self) -> None:
+        address = AddressInput(
+            None,
+            "Mersin",
+            "Mezitli",
+            "Anayurt Mahallesi",
+        )
+        found = candidate(
+            name="Anayurt Mahallesi, Mezitli, Mersin, Türkiye",
+            city="Mersin",
+            district="Mezitli",
+            neighborhood=None,
+        )
+        assessment = assess_candidate(address, found)
+        self.assertFalse(assessment.mismatches)
+        self.assertIn("Mahalle", assessment.details[0])
+        self.assertEqual(assessment.status, "UYUMLU")
+
+    def test_reverse_lookup_fills_missing_neighborhood_and_verifies_candidate(self) -> None:
+        search_candidate = {
+            "place_id": 10,
+            "display_name": "33192. Sokak, Mezitli, Mersin",
+            "lat": "36.755",
+            "lon": "34.539",
+            "addresstype": "house",
+            "address": {
+                "province": "Mersin",
+                "town": "Mezitli",
+                "road": "33192. Sokak",
+            },
+        }
+        reverse_candidate = {
+            "place_id": 11,
+            "display_name": "33192. Sokak, Anayurt Mahallesi, Mezitli, Mersin",
+            "lat": "36.755",
+            "lon": "34.539",
+            "addresstype": "house",
+            "address": {
+                "province": "Mersin",
+                "town": "Mezitli",
+                "neighbourhood": "Anayurt Mahallesi",
+                "road": "33192. Sokak",
+            },
+        }
+        http = QueueHttpClient([[search_candidate], [], [], reverse_candidate])
+        address = AddressInput(
+            "Site No: 1",
+            "Mersin",
+            "Mezitli",
+            "Anayurt Mahallesi",
+            street="33192. Sokak",
+        )
+        geocoder = NominatimGeocodingService(
+            http_client=http,
+            minimum_interval_seconds=0,
+        )
+        result = geocoder.search(address)
+        best = result.candidates[0]
+        assessment = assess_candidate(address, best)
+        self.assertTrue(best.reverse_checked)
+        self.assertEqual(best.neighborhood, "Anayurt Mahallesi")
+        self.assertEqual(assessment.status, "DOĞRULANDI")
+        self.assertEqual(http.calls[-1][0], geocoder.reverse_url)
+
+    def test_neighborhood_polygon_verifies_coordinate_when_result_omits_field(self) -> None:
+        search_candidate = {
+            "place_id": 20,
+            "display_name": "33192. Sokak, Mezitli, Mersin",
+            "lat": "36.755",
+            "lon": "34.539",
+            "addresstype": "house",
+            "address": {
+                "province": "Mersin",
+                "town": "Mezitli",
+                "road": "33192. Sokak",
+            },
+        }
+        reverse_candidate = {
+            **search_candidate,
+            "place_id": 21,
+        }
+        neighborhood_area = {
+            "place_id": 22,
+            "display_name": "Anayurt Mahallesi, Mezitli, Mersin",
+            "lat": "36.755",
+            "lon": "34.539",
+            "boundingbox": ["36.74", "36.77", "34.52", "34.56"],
+            "geojson": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [34.52, 36.74],
+                    [34.56, 36.74],
+                    [34.56, 36.77],
+                    [34.52, 36.77],
+                    [34.52, 36.74],
+                ]],
+            },
+            "address": {"neighbourhood": "Anayurt Mahallesi"},
+        }
+        http = QueueHttpClient(
+            [[search_candidate], [], [], reverse_candidate, [neighborhood_area]]
+        )
+        address = AddressInput(
+            "Site No: 1",
+            "Mersin",
+            "Mezitli",
+            "Anayurt Mahallesi",
+            street="33192. Sokak",
+        )
+        result = NominatimGeocodingService(
+            http_client=http,
+            minimum_interval_seconds=0,
+        ).search(address)
+        best = result.candidates[0]
+        assessment = assess_candidate(address, best)
+        self.assertTrue(best.neighborhood_area_verified)
+        self.assertEqual(assessment.status, "MAHALLE ALANINDA DOĞRULANDI")
+        self.assertFalse(assessment.mismatches)
+
+    def test_invalid_reverse_response_does_not_discard_search_candidates(self) -> None:
+        search_candidate = {
+            "place_id": 25,
+            "display_name": "33192. Sokak, Mezitli, Mersin",
+            "lat": "36.755",
+            "lon": "34.539",
+            "addresstype": "house",
+            "address": {
+                "province": "Mersin",
+                "town": "Mezitli",
+                "road": "33192. Sokak",
+            },
+        }
+        http = QueueHttpClient(
+            [[search_candidate], [], [], {"error": "Sonuç yok"}, []]
+        )
+        result = NominatimGeocodingService(
+            http_client=http,
+            minimum_interval_seconds=0,
+        ).search(
+            AddressInput(
+                "Site No: 1",
+                "Mersin",
+                "Mezitli",
+                "Anayurt Mahallesi",
+                street="33192. Sokak",
+            )
+        )
+        self.assertEqual(len(result.candidates), 1)
+        self.assertFalse(result.candidates[0].reverse_checked)
+
+    def test_geocodejson_response_is_normalized_and_ranked(self) -> None:
+        http = QueueHttpClient(
+            [
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [34.539, 36.755],
+                            },
+                            "properties": {
+                                "geocoding": {
+                                    "place_id": 30,
+                                    "type": "house",
+                                    "label": "33192. Sokak, Anayurt, Mezitli, Mersin",
+                                    "city": "Mersin",
+                                    "district": "Mezitli",
+                                    "locality": "Anayurt Mahallesi",
+                                    "street": "33192. Sokak",
+                                }
+                            },
+                        }
+                    ],
+                }
+            ]
+        )
+        result = NominatimGeocodingService(
+            http_client=http,
+            minimum_interval_seconds=0,
+        ).search(
+            AddressInput(
+                None,
+                "Mersin",
+                "Mezitli",
+                "Anayurt Mahallesi",
+                street="33192. Sokak",
+            )
+        )
+        self.assertEqual(result.candidates[0].result_type, "house")
+        self.assertEqual(result.candidates[0].neighborhood, "Anayurt Mahallesi")
+        self.assertEqual(http.calls[0][1]["format"], "geocodejson")
 
     def test_route_points_are_shown_and_sent_to_osrm_in_sequence_order(self) -> None:
         shift_id, _ = self._seed_route()
@@ -416,6 +731,40 @@ class MapManagementTestCase(unittest.TestCase):
         )
         self.assertFalse(route_service.get_shift_map_data(shift_id).route_is_current)
 
+    def test_route_address_change_marks_coordinates_and_geometry_stale(self) -> None:
+        shift_id, point_ids = self._seed_route()
+        calculator = RouteCalculationService(
+            self.session_factory,
+            router=StubRouter(),
+        )
+        calculator.calculate_shift(shift_id)
+        manager = RouteManagementService(self.session_factory)
+        current = manager.get_point(point_ids[0])
+        manager.update_point(
+            current.id,
+            RoutePointFormData(
+                sequence=current.sequence,
+                city=current.city,
+                district=current.district,
+                neighborhood=current.neighborhood,
+                street="33192. Sokak",
+                avenue=current.avenue,
+                point_name=current.point_name,
+                address=current.address,
+                description=current.description,
+                latitude=current.latitude,
+                longitude=current.longitude,
+                active=current.active,
+            ),
+        )
+        updated = CoordinateManagementService(
+            self.session_factory
+        ).get_route_target(current.id)
+        self.assertEqual(updated.coordinate_status, "GUNCEL_DEGIL")
+        self.assertFalse(calculator.get_shift_map_data(shift_id).route_is_current)
+        with self.assertRaises(RouteCalculationError):
+            calculator.calculate_shift(shift_id)
+
     def test_route_calculation_failure_keeps_previous_result(self) -> None:
         shift_id, _ = self._seed_route()
         successful = RouteCalculationService(
@@ -497,6 +846,29 @@ class MapManagementTestCase(unittest.TestCase):
         )
         self.assertEqual(target.coordinate_status, "GUNCEL_DEGIL")
         self.assertEqual((target.latitude, target.longitude), (36.8, 34.6))
+
+    def test_personnel_street_change_marks_coordinates_stale(self) -> None:
+        personnel_id = self._seed_personnel(latitude=36.8, longitude=34.6)
+        PersonnelManagementService(self.session_factory).update_personnel(
+            personnel_id,
+            PersonnelFormData(
+                personnel_number="P000001",
+                first_name="Ayşe",
+                last_name="Yılmaz",
+                address="Test Sokak No: 1",
+                city="MERSİN",
+                district="YENİŞEHİR",
+                neighborhood="ÇİFTLİK",
+                street="Yeni Sokak",
+                shift="08:00-16:00",
+                collar="MAVİ",
+            ),
+            allow_warnings=True,
+        )
+        target = CoordinateManagementService(self.session_factory).get_personnel_target(
+            personnel_id
+        )
+        self.assertEqual(target.coordinate_status, "GUNCEL_DEGIL")
 
     def test_map_html_distinguishes_start_middle_end_and_attribution(self) -> None:
         shift_id, _ = self._seed_route()

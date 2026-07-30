@@ -26,30 +26,31 @@ class GeocodingResultDialog(QDialog):
         self.resize(900, 480)
         layout = QVBoxLayout(self)
         explanation = QLabel(
-            "Bulunan sonuçlardan doğru olanı seçin. İl, ilçe veya mahalle uyuşmazlığı "
-            "varsa mevcut bilgiler kendiliğinden değiştirilmez."
+            "Sonuçlar adres uyumu, sorgu ayrıntısı, ters adres kontrolü ve mümkünse "
+            "mahalle alanına göre sıralanır. Uyuşmazlık varsa mevcut bilgiler "
+            "kendiliğinden değiştirilmez."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
 
         self.table = QTableWidget(len(result.candidates), 4)
         self.table.setHorizontalHeaderLabels(
-            ["Bulunan adres", "Enlem", "Boylam", "Adres kontrolü"]
+            ["Bulunan adres", "Enlem", "Boylam", "Doğrulama durumu"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         for row, review in enumerate(result.candidates):
-            mismatch_text = (
-                "; ".join(item.message for item in review.mismatches)
-                if review.mismatches
-                else "İl/ilçe/mahalle uyumlu veya sonuçta alan eksik"
-            )
+            control_parts = [f"{review.status} — uyum puanı {review.score}/100"]
+            control_parts.extend(review.details)
+            if review.mismatches:
+                control_parts.extend(item.message for item in review.mismatches)
+            control_text = "; ".join(dict.fromkeys(control_parts))
             values = (
                 review.candidate.display_name,
                 str(review.candidate.latitude),
                 str(review.candidate.longitude),
-                mismatch_text,
+                control_text,
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -63,7 +64,7 @@ class GeocodingResultDialog(QDialog):
         layout.addWidget(self.table, 1)
 
         self.accept_address_check = QCheckBox(
-            "Seçilen sonuçtaki il, ilçe ve mahalle bilgilerini de kabul et"
+            "Seçilen sonuçtaki il, ilçe, mahalle, sokak ve cadde bilgilerini de kabul et"
         )
         layout.addWidget(self.accept_address_check)
         buttons = QDialogButtonBox(

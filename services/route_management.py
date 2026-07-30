@@ -15,6 +15,7 @@ from database.repositories import (
     ServisVardiyasiRepository,
 )
 from database.session import SessionFactory, session_scope
+from normalization.address import extract_address_roads
 from normalization.text import comparison_key, is_blank, is_excel_error, normalize_text
 from normalization.values import (
     ValueNormalizationError,
@@ -53,6 +54,8 @@ class RoutePointFormData:
     city: str | None = None
     district: str | None = None
     neighborhood: str | None = None
+    street: str | None = None
+    avenue: str | None = None
     point_name: str | None = None
     address: str | None = None
     description: str | None = None
@@ -73,6 +76,8 @@ class RoutePointView:
     city: str | None
     district: str | None
     neighborhood: str | None
+    street: str | None
+    avenue: str | None
     point_name: str | None
     address: str | None
     description: str | None
@@ -258,6 +263,8 @@ class RouteManagementService:
                 city=current.city,
                 district=current.district,
                 neighborhood=current.neighborhood,
+                street=current.street,
+                avenue=current.avenue,
                 point_name=current.point_name,
                 address=current.address,
                 description=current.description,
@@ -330,10 +337,15 @@ class RouteManagementService:
             "city": cls._optional_text(form_data.city, "İl"),
             "district": cls._optional_text(form_data.district, "İlçe"),
             "neighborhood": cls._optional_text(form_data.neighborhood, "Mahalle"),
+            "street": cls._optional_text(form_data.street, "Sokak"),
+            "avenue": cls._optional_text(form_data.avenue, "Cadde"),
             "point_name": cls._optional_text(form_data.point_name, "Nokta adı"),
             "address": cls._optional_text(form_data.address, "Açık adres"),
             "description": cls._optional_text(form_data.description, "Açıklama"),
         }
+        extracted_roads = extract_address_roads(values["address"])
+        values["street"] = values["street"] or extracted_roads.street
+        values["avenue"] = values["avenue"] or extracted_roads.avenue
         if not any(
             values[field] is not None
             for field in ("district", "neighborhood", "point_name")
@@ -379,6 +391,8 @@ class RouteManagementService:
             normalized["city"],
             normalized["district"],
             normalized["neighborhood"],
+            normalized["street"],
+            normalized["avenue"],
             normalized["point_name"],
         )
         for point in existing_points:
@@ -388,6 +402,8 @@ class RouteManagementService:
                 point.il,
                 point.ilce,
                 point.mahalle,
+                point.sokak,
+                point.cadde,
                 point.nokta_adi,
             ) == target_key:
                 raise DuplicateRoutePointError(
@@ -408,11 +424,15 @@ class RouteManagementService:
             city=point.il,
             district=point.ilce,
             neighborhood=point.mahalle,
+            street=point.sokak,
+            avenue=point.cadde,
         ).signature()
         previous_coordinates = (point.enlem, point.boylam)
         point.il = normalized["city"]
         point.ilce = normalized["district"]
         point.mahalle = normalized["neighborhood"]
+        point.sokak = normalized["street"]
+        point.cadde = normalized["avenue"]
         point.nokta_adi = normalized["point_name"]
         point.acik_adres = normalized["address"]
         point.aciklama = normalized["description"]
@@ -423,6 +443,8 @@ class RouteManagementService:
             city=point.il,
             district=point.ilce,
             neighborhood=point.mahalle,
+            street=point.sokak,
+            avenue=point.cadde,
         )
         if point.enlem is None or point.boylam is None:
             point.koordinat_durumu = "EKSIK"
@@ -471,6 +493,8 @@ class RouteManagementService:
             city=point.il,
             district=point.ilce,
             neighborhood=point.mahalle,
+            street=point.sokak,
+            avenue=point.cadde,
             point_name=point.nokta_adi,
             address=point.acik_adres,
             description=point.aciklama,

@@ -147,19 +147,32 @@ tamamı geri alınır.
 gösterilebilir. Başlangıç, ara ve bitiş noktaları farklı renklerle işaretlenir. Harita
 OpenStreetMap verisini kullanır ve harita üzerinde gerekli kaynak atfını gösterir.
 
-`Adresi Çözümle` ve `Seçili Noktayı Çözümle` işlemleri önce tam adresi Nominatim'e
-gönderir; sonuç bulunamazsa mahalle, ilçe ve il bilgileriyle kontrollü geri dönüş araması
-yapar. Bulunan sonuçlar kullanıcıya gösterilir. Birden fazla sonuç varsa kullanıcı seçim
-yapar. İl, ilçe veya mahalle uyuşmazlığı varsa alanlar sessizce değiştirilmez; kullanıcı
-mevcut bilgileri koruyabilir veya bulunan idari alanları ayrıca kabul edebilir. Mevcut
-koordinatlar yalnızca kullanıcı yeniden çözümlemeyi onaylarsa sorgulanır. Manuel enlem ve
-boylam girişi de desteklenir.
+Personel ve güzergâh noktalarının adres yapısı `acik_adres`, `mahalle`, `sokak`, `cadde`,
+`ilce`, `il`, `enlem` ve `boylam` alanlarını destekler. Sokak ve cadde ayrı sütunlarda
+saklanır; Excel'de bu sütunlar yoksa uygun değerler açık adresten ayrıştırılır. Eski birleşik
+`sokak_cadde` alanı bulunan veritabanlarında kayıt silinmeden yeni alanlara güvenli aktarım
+yapılır.
 
-Personel adresi değiştiğinde mevcut koordinat `GUNCEL_DEGIL` durumuna alınır. Güzergâh
-noktası, sırası, aktifliği veya koordinatı değiştiğinde servis-vardiya için saklanan rota
-sonucu güncel değil olarak işaretlenir. `Rotayı Hesapla` noktaları `sira_no` sırasında OSRM'ye
-gönderir; OSRM nokta sırasını değiştirmez. Mesafe, tahmini süre ve GeoJSON rota çizgisi
-servis-vardiya bazında transaction ile saklanır.
+`Adresi Çözümle` ve `Seçili Noktayı Çözümle` işlemleri sorguları ayrıntılıdan genele doğru
+tam adres ve yol alanları, sokak/cadde ve idari alanlar, mahalle-ilçe-il ve son olarak
+kontrollü ilçe-il düzeyinde dener. Boş alanlar ve aynı ifadeler sorguda tekrarlanmaz. İlk
+sonuç doğrudan kabul edilmez; farklı sorgulardan gelen adaylar adres bileşeni uyumu, sorgu
+ayrıntısı ve sonuç hassasiyetine göre puanlanıp sıralanır. En iyi adayda alanlar eksikse
+koordinat ters adres çözümlemesiyle yeniden kontrol edilir. Mahalle yine belirtilmiyorsa
+mahalle ayrıca aranır ve koordinatın bulunan mahalle poligonu veya sınır kutusu içinde olup
+olmadığı doğrulanır. Sonuç ekranında doğrulama durumu, uyum puanı, eşleşen, eksik ve
+uyuşmayan alanlar açıkça gösterilir. İl, ilçe, mahalle, sokak veya cadde uyuşmazlığı ya da
+eksikliği varsa alanlar sessizce değiştirilmez; kullanıcı mevcut bilgileri koruyabilir veya
+bulunan alanları ayrıca kabul edebilir. Mevcut koordinatlar yalnızca kullanıcı yeniden
+çözümlemeyi onaylarsa sorgulanır. Manuel enlem ve boylam girişi de desteklenir.
+
+Personel adres alanlarından biri değiştiğinde mevcut koordinat `GUNCEL_DEGIL` durumuna
+alınır. Güzergâh adresi, noktası, sırası, aktifliği veya koordinatı değiştiğinde hem nokta
+koordinatı hem de servis-vardiya için saklanan rota uygun biçimde güncel değil olarak
+işaretlenir. `Rotayı Hesapla` yalnızca aktif ve koordinatı bulunan noktaları `sira_no`
+sırasında OSRM'ye gönderir; güncel olmadığı bilinen koordinatlarla yeni rota oluşturmaz ve
+OSRM nokta sırasını değiştirmez. Mesafe, tahmini süre ve GeoJSON rota çizgisi servis-vardiya
+bazında transaction ile saklanır.
 
 Toplu koordinat çözümleme tek worker ve tek istek akışıyla çalışır, istekleri saniyede en
 fazla bir kez gönderir ve kullanıcı tarafından iptal edilebilir. Tek ve idari alanlarla

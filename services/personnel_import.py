@@ -13,6 +13,7 @@ from database.models import Personel, PersonelTuru, VardiyaTuru, YakaTuru
 from database.repositories import PersonelRepository
 from database.session import SessionFactory, session_scope
 from excel_import.models import AnalysisReport, PreviewRow
+from normalization.address import extract_address_roads
 from normalization.result import RecordType
 from services.service_capacity_import import ConflictBehavior, ImportAction
 from services.geocoding import AddressInput
@@ -37,6 +38,8 @@ class PersonnelImportRecord:
     city: str
     district: str
     neighborhood: str
+    street: str | None
+    avenue: str | None
     latitude: float | None
     longitude: float | None
     shift: VardiyaTuru
@@ -322,6 +325,9 @@ class PersonnelImportService:
         city = cls._required_text(data, "IL", "İl")
         district = cls._required_text(data, "ILCE", "İlçe")
         neighborhood = cls._required_text(data, "MAHALLE", "Mahalle")
+        roads = extract_address_roads(address)
+        street = cls._optional_text(data, "SOKAK") or roads.street
+        avenue = cls._optional_text(data, "CADDE") or roads.avenue
         try:
             shift = VardiyaTuru(data.get("VARDIYA"))
         except (TypeError, ValueError):
@@ -354,6 +360,8 @@ class PersonnelImportService:
             city=city,
             district=district,
             neighborhood=neighborhood,
+            street=street,
+            avenue=avenue,
             latitude=None if latitude is None else float(latitude),
             longitude=None if longitude is None else float(longitude),
             shift=shift,
@@ -434,11 +442,21 @@ class PersonnelImportService:
         *,
         new_record: bool,
     ) -> None:
+        previous_address = AddressInput(
+            address=personnel.acik_adres,
+            city=personnel.il,
+            district=personnel.ilce,
+            neighborhood=personnel.mahalle,
+            street=personnel.sokak,
+            avenue=personnel.cadde,
+        ).signature()
         new_address = AddressInput(
             address=record.address,
             city=record.city,
             district=record.district,
             neighborhood=record.neighborhood,
+            street=record.street,
+            avenue=record.avenue,
         )
         if new_record or record.first_name_provided:
             personnel.ad = record.first_name
@@ -451,14 +469,20 @@ class PersonnelImportService:
         personnel.il = record.city
         personnel.ilce = record.district
         personnel.mahalle = record.neighborhood
-        personnel.enlem = record.latitude
-        personnel.boylam = record.longitude
+        personnel.sokak = record.street
+        personnel.cadde = record.avenue
         if record.latitude is not None and record.longitude is not None:
+            personnel.enlem = record.latitude
+            personnel.boylam = record.longitude
             personnel.koordinat_durumu = "MEVCUT"
             personnel.koordinat_adres_ozeti = new_address.signature()
-        else:
+        elif new_record or personnel.enlem is None or personnel.boylam is None:
+            personnel.enlem = None
+            personnel.boylam = None
             personnel.koordinat_durumu = "EKSIK"
             personnel.koordinat_adres_ozeti = None
+        elif previous_address != new_address.signature():
+            personnel.koordinat_durumu = "GUNCEL_DEGIL"
         personnel.vardiya_turu = record.shift
         personnel.yaka_turu = record.collar
         personnel.personel_turu = record.personnel_type

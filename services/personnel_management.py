@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from database.models import Personel, PersonelTuru, VardiyaTuru, YakaTuru
 from database.repositories import PersonelRepository
 from database.session import SessionFactory, session_scope
-from normalization import validate_personnel_row
+from normalization import extract_address_roads, validate_personnel_row
 from services.geocoding import AddressInput
 
 
@@ -55,6 +55,8 @@ class PersonnelFormData:
     neighborhood: str
     shift: str
     collar: str
+    street: str | None = None
+    avenue: str | None = None
     personnel_type: str = PersonelTuru.KADROLU.value
     internship_start: date | str | None = None
     internship_end: date | str | None = None
@@ -71,6 +73,8 @@ class PersonnelView:
     city: str | None
     district: str | None
     neighborhood: str | None
+    street: str | None
+    avenue: str | None
     shift: str
     collar: str
     active: bool
@@ -94,8 +98,11 @@ class PersonnelManagementService:
 
     REASSESSMENT_FIELDS = {
         "ACIK_ADRES",
+        "IL",
         "ILCE",
         "MAHALLE",
+        "SOKAK",
+        "CADDE",
         "VARDIYA",
         "YAKA",
     }
@@ -279,6 +286,8 @@ class PersonnelManagementService:
             "IL": form_data.city,
             "ILCE": form_data.district,
             "MAHALLE": form_data.neighborhood,
+            "SOKAK": form_data.street,
+            "CADDE": form_data.avenue,
             "ENLEM": existing.enlem if existing is not None else None,
             "BOYLAM": existing.boylam if existing is not None else None,
             "VARDIYA": form_data.shift,
@@ -307,12 +316,19 @@ class PersonnelManagementService:
             city=personnel.il,
             district=personnel.ilce,
             neighborhood=personnel.mahalle,
+            street=personnel.sokak,
+            avenue=personnel.cadde,
         ).signature()
+        extracted_roads = extract_address_roads(normalized["ACIK_ADRES"])
+        street = normalized.get("SOKAK") or extracted_roads.street
+        avenue = normalized.get("CADDE") or extracted_roads.avenue
         new_address = AddressInput(
             address=str(normalized["ACIK_ADRES"]),
             city=normalized.get("IL"),
             district=normalized.get("ILCE"),
             neighborhood=normalized.get("MAHALLE"),
+            street=street,
+            avenue=avenue,
         ).signature()
         if (
             personnel.enlem is not None
@@ -329,6 +345,8 @@ class PersonnelManagementService:
         personnel.il = normalized.get("IL")
         personnel.ilce = normalized.get("ILCE")
         personnel.mahalle = normalized.get("MAHALLE")
+        personnel.sokak = street
+        personnel.cadde = avenue
         personnel.vardiya_turu = VardiyaTuru(normalized["VARDIYA"])
         personnel.yaka_turu = YakaTuru(normalized["YAKA"])
         personnel.personel_turu = PersonelTuru(normalized["STATU"])
@@ -342,15 +360,24 @@ class PersonnelManagementService:
         personnel: Personel,
         normalized: dict[str, Any],
     ) -> bool:
+        extracted_roads = extract_address_roads(normalized.get("ACIK_ADRES"))
+        candidate_values = {
+            **normalized,
+            "SOKAK": normalized.get("SOKAK") or extracted_roads.street,
+            "CADDE": normalized.get("CADDE") or extracted_roads.avenue,
+        }
         current_values = {
             "ACIK_ADRES": personnel.acik_adres,
+            "IL": personnel.il,
             "ILCE": personnel.ilce,
             "MAHALLE": personnel.mahalle,
+            "SOKAK": personnel.sokak,
+            "CADDE": personnel.cadde,
             "VARDIYA": personnel.vardiya_turu.value,
             "YAKA": personnel.yaka_turu.value,
         }
         return any(
-            current_values[field_name] != normalized.get(field_name)
+            current_values[field_name] != candidate_values.get(field_name)
             for field_name in cls.REASSESSMENT_FIELDS
         )
 
@@ -365,6 +392,8 @@ class PersonnelManagementService:
             city=personnel.il,
             district=personnel.ilce,
             neighborhood=personnel.mahalle,
+            street=personnel.sokak,
+            avenue=personnel.cadde,
             shift=personnel.vardiya_turu.value,
             collar=personnel.yaka_turu.value,
             active=personnel.aktif_mi,

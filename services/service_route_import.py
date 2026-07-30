@@ -22,6 +22,7 @@ from database.repositories import (
 )
 from database.session import SessionFactory, session_scope
 from excel_import.models import AnalysisReport, PreviewRow
+from normalization.address import extract_address_roads
 from normalization.result import RecordType
 from normalization.text import comparison_key
 from services.geocoding import AddressInput
@@ -45,6 +46,8 @@ class ServiceRouteImportRecord:
     city: str | None
     district: str | None
     neighborhood: str | None
+    street: str | None
+    avenue: str | None
     point_name: str | None
     address: str | None
     description: str | None
@@ -354,6 +357,7 @@ class ServiceRouteImportService:
             raise ValueError(
                 "Enlem ve boylam birlikte doldurulmalı veya ikisi de boş bırakılmalıdır."
             )
+        roads = extract_address_roads(data.get("ACIK_ADRES"))
         return ServiceRouteImportRecord(
             row_number=row.row_number,
             service_code=service_code,
@@ -363,6 +367,8 @@ class ServiceRouteImportService:
             city=data.get("IL"),
             district=data.get("ILCE"),
             neighborhood=data.get("MAHALLE"),
+            street=data.get("SOKAK") or roads.street,
+            avenue=data.get("CADDE") or roads.avenue,
             point_name=data.get("NOKTA_ADI"),
             address=data.get("ACIK_ADRES"),
             description=data.get("ACIKLAMA"),
@@ -397,6 +403,8 @@ class ServiceRouteImportService:
                     il=record.city,
                     ilce=record.district,
                     mahalle=record.neighborhood,
+                    sokak=record.street,
+                    cadde=record.avenue,
                     nokta_adi=record.point_name,
                     acik_adres=record.address,
                     aciklama=record.description,
@@ -415,6 +423,8 @@ class ServiceRouteImportService:
                             city=record.city,
                             district=record.district,
                             neighborhood=record.neighborhood,
+                            street=record.street,
+                            avenue=record.avenue,
                         ).signature()
                         if record.latitude is not None and record.longitude is not None
                         else None

@@ -112,6 +112,8 @@ class PersonnelManagementWidget(QWidget):
         self.city_edit = QLineEdit()
         self.district_edit = QLineEdit()
         self.neighborhood_edit = QLineEdit()
+        self.street_edit = QLineEdit()
+        self.avenue_edit = QLineEdit()
         self.shift_combo = QComboBox()
         for shift in VardiyaTuru:
             self.shift_combo.addItem(shift.value, shift.value)
@@ -141,9 +143,11 @@ class PersonnelManagementWidget(QWidget):
         form_layout.addRow("Ad:", self.first_name_edit)
         form_layout.addRow("Soyad:", self.last_name_edit)
         form_layout.addRow("Açık Adres*:", self.address_edit)
-        form_layout.addRow("İl*:", self.city_edit)
-        form_layout.addRow("İlçe*:", self.district_edit)
         form_layout.addRow("Mahalle*:", self.neighborhood_edit)
+        form_layout.addRow("Sokak:", self.street_edit)
+        form_layout.addRow("Cadde:", self.avenue_edit)
+        form_layout.addRow("İlçe*:", self.district_edit)
+        form_layout.addRow("İl*:", self.city_edit)
         form_layout.addRow("Vardiya*:", self.shift_combo)
         form_layout.addRow("Yaka*:", self.collar_combo)
         form_layout.addRow("Aktiflik:", self.active_check)
@@ -293,6 +297,8 @@ class PersonnelManagementWidget(QWidget):
         self.city_edit.setText(personnel.city or "")
         self.district_edit.setText(personnel.district or "")
         self.neighborhood_edit.setText(personnel.neighborhood or "")
+        self.street_edit.setText(personnel.street or "")
+        self.avenue_edit.setText(personnel.avenue or "")
         self._set_combo_value(self.shift_combo, personnel.shift)
         self._set_combo_value(self.collar_combo, personnel.collar)
         self.active_check.setChecked(personnel.active)
@@ -356,6 +362,8 @@ class PersonnelManagementWidget(QWidget):
         self.city_edit.clear()
         self.district_edit.clear()
         self.neighborhood_edit.clear()
+        self.street_edit.clear()
+        self.avenue_edit.clear()
         self.shift_combo.setCurrentIndex(0)
         self.collar_combo.setCurrentIndex(0)
         self.active_check.setChecked(True)
@@ -396,6 +404,8 @@ class PersonnelManagementWidget(QWidget):
             city=self.city_edit.text(),
             district=self.district_edit.text(),
             neighborhood=self.neighborhood_edit.text(),
+            street=self.street_edit.text(),
+            avenue=self.avenue_edit.text(),
             shift=str(self.shift_combo.currentData() or ""),
             collar=str(self.collar_combo.currentData() or ""),
             personnel_type=str(self.personnel_type_combo.currentData() or ""),
