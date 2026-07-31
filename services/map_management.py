@@ -11,6 +11,11 @@ from typing import Callable, Literal
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.factory import (
+    DEFAULT_FACTORY_DESTINATION,
+    FACTORY_DESTINATION_SETTING_KEY,
+    FactoryDestination,
+)
 from database.models import (
     AdresOnbellegi,
     Personel,
@@ -19,6 +24,7 @@ from database.models import (
 )
 from database.repositories import (
     AddressCacheRepository,
+    ApplicationSettingRepository,
     PersonnelCoordinateRepository,
     RouteGeometryRepository,
     RoutePointCoordinateRepository,
@@ -120,7 +126,7 @@ class BulkGeocodingResult:
 
 @dataclass(frozen=True, slots=True)
 class RoutePointMapView:
-    id: int
+    id: int | None
     sequence: int
     label: str
     district: str | None
@@ -129,6 +135,7 @@ class RoutePointMapView:
     longitude: float | None
     active: bool
     position_label: str
+    is_destination: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,6 +568,35 @@ class RouteCalculationService:
         self.session_factory = session_factory
         self.router = router or OsrmRoutingService()
 
+    def get_factory_destination(self) -> FactoryDestination:
+        with self.session_factory() as session:
+            return self._factory_destination(session)
+
+    def set_factory_coordinates(
+        self,
+        latitude: object,
+        longitude: object,
+    ) -> FactoryDestination:
+        try:
+            resolved_latitude = normalize_coordinate(latitude, latitude=True)
+            resolved_longitude = normalize_coordinate(longitude, latitude=False)
+        except ValueNormalizationError as error:
+            raise CoordinateValidationError(str(error)) from error
+        if resolved_latitude is None or resolved_longitude is None:
+            raise CoordinateValidationError("Fabrika enlem ve boylamı zorunludur.")
+        with session_scope(self.session_factory) as session:
+            current = self._factory_destination(session)
+            updated = current.with_coordinates(
+                resolved_latitude,
+                resolved_longitude,
+            )
+            ApplicationSettingRepository(session).set_value(
+                FACTORY_DESTINATION_SETTING_KEY,
+                updated.to_json(),
+            )
+            RouteGeometryRepository(session).mark_all_stale()
+        return updated
+
     def calculate_shift(self, shift_id: int) -> RouteCalculationResult:
         with self.session_factory() as session:
             shift = ServisVardiyasiRepository(session).get_detail(shift_id)
@@ -570,22 +606,51 @@ class RouteCalculationService:
                 shift_id,
                 include_inactive=False,
             )
-            signature = self.point_signature(points)
+            destination = self._factory_destination(session)
+            signature = self.point_signature(points, destination)
             coordinates = self._coordinates(points)
         try:
-            calculated = self.router.calculate(coordinates)
+            optimized = self.router.calculate_optimized_to_destination(
+                coordinates,
+                RouteCoordinate(
+                    latitude=destination.latitude,
+                    longitude=destination.longitude,
+                ),
+            )
         except ExternalServiceError as error:
             raise RouteCalculationError(str(error)) from error
+        expected_indexes = tuple(range(len(points)))
+        if tuple(sorted(optimized.pickup_order)) != expected_indexes:
+            raise RouteCalculationError("Rota servisi geçersiz bir toplama sırası döndürdü.")
+        ordered_ids = [points[index].id for index in optimized.pickup_order]
+        calculated = optimized.route
 
         with session_scope(self.session_factory) as session:
-            current_points = RoutePointRepository(session).list_for_shift(
+            point_repository = RoutePointRepository(session)
+            all_points = point_repository.list_for_shift(
                 shift_id,
-                include_inactive=False,
+                include_inactive=True,
             )
-            if self.point_signature(current_points) != signature:
+            current_points = [point for point in all_points if point.aktif_mi]
+            current_destination = self._factory_destination(session)
+            if current_destination != destination:
+                raise RouteCalculationError(
+                    "Fabrika varış noktası hesaplama sırasında değişti. Lütfen yeniden deneyin."
+                )
+            if self.point_signature(current_points, destination) != signature:
                 raise RouteCalculationError(
                     "Güzergâh noktaları hesaplama sırasında değişti. Lütfen yeniden deneyin."
                 )
+            active_by_id = {point.id: point for point in current_points}
+            try:
+                optimized_points = [active_by_id[point_id] for point_id in ordered_ids]
+            except KeyError as error:
+                raise RouteCalculationError(
+                    "Optimize edilen güzergâh noktalarından biri artık bulunmuyor."
+                ) from error
+            inactive_points = [point for point in all_points if not point.aktif_mi]
+            point_repository.resequence(optimized_points + inactive_points)
+            new_signature = self.point_signature(optimized_points, destination)
             repository = RouteGeometryRepository(session)
             geometry = repository.get_for_shift(shift_id)
             if geometry is None:
@@ -595,13 +660,13 @@ class RouteCalculationService:
                         geojson="{}",
                         toplam_mesafe_metre=0,
                         toplam_sure_saniye=0,
-                        nokta_ozeti=signature,
+                        nokta_ozeti=new_signature,
                     )
                 )
             geometry.geojson = json.dumps(calculated.geometry, ensure_ascii=False)
             geometry.toplam_mesafe_metre = calculated.distance_meters
             geometry.toplam_sure_saniye = calculated.duration_seconds
-            geometry.nokta_ozeti = signature
+            geometry.nokta_ozeti = new_signature
             geometry.guncel_mi = True
             geometry.aktif_mi = True
             geometry.hesaplanma_tarihi = datetime.now()
@@ -619,7 +684,8 @@ class RouteCalculationService:
                 raise RouteCalculationError("Servis-vardiya kaydı bulunamadı.")
             points = RoutePointRepository(session).list_for_shift(shift_id)
             active_points = [point for point in points if point.aktif_mi]
-            signature = self.point_signature(active_points)
+            destination = self._factory_destination(session)
+            signature = self.point_signature(active_points, destination)
             stored = RouteGeometryRepository(session).get_for_shift(shift_id)
             geometry = None
             distance = duration = None
@@ -634,7 +700,7 @@ class RouteCalculationService:
                         geometry = decoded
                 except json.JSONDecodeError:
                     logger.warning("Saklanan rota geometrisi okunamadı: vardiya_id=%s", shift_id)
-            point_views = self._point_views(active_points)
+            point_views = self._point_views(active_points, destination)
             return RouteMapData(
                 service_shift_id=shift.id,
                 service_code=shift.servis.servis_kodu,
@@ -651,9 +717,9 @@ class RouteCalculationService:
     def _coordinates(
         points: list[ServisGuzergahNoktasi],
     ) -> tuple[RouteCoordinate, ...]:
-        if len(points) < 2:
+        if not points:
             raise RouteCalculationError(
-                "Rota hesaplamak için en az iki aktif güzergâh noktası gerekir."
+                "Rota hesaplamak için en az bir aktif toplama noktası gerekir."
             )
         missing = [point.sira_no for point in points if point.enlem is None or point.boylam is None]
         if missing:
@@ -678,27 +744,31 @@ class RouteCalculationService:
         )
 
     @staticmethod
-    def point_signature(points: list[ServisGuzergahNoktasi]) -> str:
+    def point_signature(
+        points: list[ServisGuzergahNoktasi],
+        destination: FactoryDestination | None = None,
+    ) -> str:
         content = "|".join(
             f"{point.id}:{point.sira_no}:{point.enlem}:{point.boylam}:"
             f"{point.koordinat_durumu}:{int(point.aktif_mi)}"
             for point in points
         )
+        if destination is not None:
+            content += (
+                f"|FABRIKA:{destination.name}:{destination.latitude}:"
+                f"{destination.longitude}"
+            )
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _point_views(
         points: list[ServisGuzergahNoktasi],
+        destination: FactoryDestination,
     ) -> tuple[RoutePointMapView, ...]:
-        count = len(points)
         views: list[RoutePointMapView] = []
         for index, point in enumerate(points):
-            if count == 1:
-                position = "Başlangıç / Bitiş"
-            elif index == 0:
+            if index == 0:
                 position = "Başlangıç"
-            elif index == count - 1:
-                position = "Bitiş"
             else:
                 position = "Ara Nokta"
             views.append(
@@ -714,4 +784,32 @@ class RouteCalculationService:
                     position_label=position,
                 )
             )
+        views.append(
+            RoutePointMapView(
+                id=None,
+                sequence=len(points) + 1,
+                label=destination.name,
+                district=destination.district,
+                neighborhood=destination.neighborhood,
+                latitude=destination.latitude,
+                longitude=destination.longitude,
+                active=True,
+                position_label="Bitiş / Fabrika",
+                is_destination=True,
+            )
+        )
         return tuple(views)
+
+    @staticmethod
+    def _factory_destination(session: Session) -> FactoryDestination:
+        value = ApplicationSettingRepository(session).get_value(
+            FACTORY_DESTINATION_SETTING_KEY
+        )
+        if value is None:
+            return DEFAULT_FACTORY_DESTINATION
+        try:
+            return FactoryDestination.from_json(value)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise RouteCalculationError(
+                "Fabrika varış noktası ayarı geçersiz. Koordinatları yeniden kaydedin."
+            ) from error

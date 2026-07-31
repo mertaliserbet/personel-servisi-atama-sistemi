@@ -6,6 +6,7 @@ import logging
 
 from sqlalchemy import Engine, inspect
 
+from app.factory import DEFAULT_FACTORY_DESTINATION, FACTORY_DESTINATION_SETTING_KEY
 from app.paths import DATABASE_PATH
 from database.connection import engine
 from database.models import (
@@ -17,6 +18,20 @@ from normalization.address import extract_address_roads
 
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_default_factory_destination(database_engine: Engine) -> None:
+    """Eksik ayarı ekler; kullanıcının mevcut fabrika ayarını değiştirmez."""
+    if "ayar" not in inspect(database_engine).get_table_names():
+        return
+    with database_engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT OR IGNORE INTO ayar (anahtar, deger) VALUES (?, ?)",
+            (
+                FACTORY_DESTINATION_SETTING_KEY,
+                DEFAULT_FACTORY_DESTINATION.to_json(),
+            ),
+        )
 
 
 def _ensure_coordinate_tracking_columns(
@@ -311,4 +326,5 @@ def initialize_database(database_engine: Engine = engine) -> None:
     _apply_compatibility_migrations(database_engine)
     _ensure_address_road_columns(database_engine, "personel")
     _ensure_address_road_columns(database_engine, "servis_guzergah_noktasi")
+    _ensure_default_factory_destination(database_engine)
     logger.info("SQLAlchemy veritabanı şeması hazır: %s", DATABASE_PATH)

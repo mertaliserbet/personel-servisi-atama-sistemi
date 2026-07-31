@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from dataclasses import dataclass
 
@@ -18,6 +19,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_OSRM_URL = os.getenv(
     "SERVIS_ATAMA_OSRM_URL",
     "https://router.project-osrm.org/route/v1/driving",
+)
+DEFAULT_OSRM_TABLE_URL = os.getenv(
+    "SERVIS_ATAMA_OSRM_TABLE_URL",
+    "https://router.project-osrm.org/table/v1/driving",
 )
 
 
@@ -38,17 +43,95 @@ class RoutingResult:
     geometry: dict[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class OptimizedRoutingResult:
+    route: RoutingResult
+    pickup_order: tuple[int, ...]
+
+
 class OsrmRoutingService:
     def __init__(
         self,
         *,
         http_client: JsonHttpClient | None = None,
         base_url: str = DEFAULT_OSRM_URL,
+        table_url: str = DEFAULT_OSRM_TABLE_URL,
         timeout_seconds: float = 25.0,
     ) -> None:
         self.http_client = http_client or JsonHttpClient()
         self.base_url = base_url.rstrip("/")
+        self.table_url = table_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+
+    def calculate_optimized_to_destination(
+        self,
+        pickups: tuple[RouteCoordinate, ...],
+        destination: RouteCoordinate,
+    ) -> OptimizedRoutingResult:
+        """Toplama noktalarını optimize eder ve sabit varışta biten rotayı üretir."""
+        if not pickups:
+            raise RoutingError("Rota hesaplamak için en az bir toplama noktası gerekir.")
+        if len(pickups) > 99:
+            raise RoutingError(
+                "Tek rotada en fazla 99 toplama noktası optimize edilebilir. "
+                "Hizmet bölgesini gerçek duraklara ayırın."
+            )
+        all_coordinates = pickups + (destination,)
+        durations = self._duration_matrix(all_coordinates)
+        pickup_order = optimize_fixed_destination_order(durations)
+        ordered_coordinates = tuple(pickups[index] for index in pickup_order) + (
+            destination,
+        )
+        return OptimizedRoutingResult(
+            route=self.calculate(ordered_coordinates),
+            pickup_order=pickup_order,
+        )
+
+    def _duration_matrix(
+        self,
+        coordinates: tuple[RouteCoordinate, ...],
+    ) -> tuple[tuple[float, ...], ...]:
+        coordinate_path = ";".join(
+            f"{point.longitude:.8f},{point.latitude:.8f}" for point in coordinates
+        )
+        try:
+            payload = self.http_client.get_json(
+                f"{self.table_url}/{coordinate_path}",
+                params={"annotations": "duration"},
+                headers={"User-Agent": APPLICATION_USER_AGENT},
+                timeout=self.timeout_seconds,
+            )
+        except ExternalServiceError:
+            logger.warning("OSRM süre matrisi isteği tamamlanamadı.")
+            raise
+        if not isinstance(payload, dict) or payload.get("code") != "Ok":
+            message = payload.get("message") if isinstance(payload, dict) else None
+            raise RoutingError(
+                str(message or "Rota servisi noktalar arasında süre matrisi oluşturamadı.")
+            )
+        raw_durations = payload.get("durations")
+        size = len(coordinates)
+        if not isinstance(raw_durations, list) or len(raw_durations) != size:
+            raise InvalidExternalResponseError("Rota servisinin süre matrisi geçersiz.")
+        matrix: list[tuple[float, ...]] = []
+        for row in raw_durations:
+            if not isinstance(row, list) or len(row) != size:
+                raise InvalidExternalResponseError("Rota servisinin süre matrisi geçersiz.")
+            parsed_row: list[float] = []
+            for value in row:
+                try:
+                    duration = float(value)
+                except (TypeError, ValueError) as error:
+                    raise RoutingError(
+                        "Güzergâh noktalarından biri diğer noktalara karayoluyla bağlanamıyor."
+                    ) from error
+                if duration < 0 or not math.isfinite(duration):
+                    raise InvalidExternalResponseError(
+                        "Rota servisinin süre matrisi geçersiz."
+                    )
+                parsed_row.append(duration)
+            matrix.append(tuple(parsed_row))
+        return tuple(matrix)
 
     def calculate(self, coordinates: tuple[RouteCoordinate, ...]) -> RoutingResult:
         if len(coordinates) < 2:
@@ -100,3 +183,124 @@ class OsrmRoutingService:
             duration_seconds=duration,
             geometry=geometry,
         )
+
+
+def optimize_fixed_destination_order(
+    durations: tuple[tuple[float, ...], ...],
+) -> tuple[int, ...]:
+    """Serbest başlangıçlı, bütün toplamalardan geçen, sabit bitişli sıra bulur."""
+    size = len(durations)
+    if size < 2 or any(len(row) != size for row in durations):
+        raise RoutingError("Rota optimizasyon matrisi geçersiz.")
+    pickup_count = size - 1
+    if pickup_count <= 11:
+        return _exact_fixed_destination_order(durations)
+    return _heuristic_fixed_destination_order(durations)
+
+
+def _exact_fixed_destination_order(
+    durations: tuple[tuple[float, ...], ...],
+) -> tuple[int, ...]:
+    pickup_count = len(durations) - 1
+    full_mask = (1 << pickup_count) - 1
+    costs: dict[tuple[int, int], float] = {
+        (1 << index, index): 0.0 for index in range(pickup_count)
+    }
+    previous: dict[tuple[int, int], int] = {}
+    for mask in range(1, full_mask + 1):
+        for last in range(pickup_count):
+            current = costs.get((mask, last))
+            if current is None:
+                continue
+            for next_index in range(pickup_count):
+                bit = 1 << next_index
+                if mask & bit:
+                    continue
+                next_mask = mask | bit
+                candidate = current + durations[last][next_index]
+                key = (next_mask, next_index)
+                if candidate < costs.get(key, math.inf):
+                    costs[key] = candidate
+                    previous[key] = last
+    destination_index = pickup_count
+    last = min(
+        range(pickup_count),
+        key=lambda index: costs[(full_mask, index)]
+        + durations[index][destination_index],
+    )
+    order: list[int] = []
+    mask = full_mask
+    while True:
+        order.append(last)
+        prior = previous.get((mask, last))
+        if prior is None:
+            break
+        mask ^= 1 << last
+        last = prior
+    order.reverse()
+    return tuple(order)
+
+
+def _heuristic_fixed_destination_order(
+    durations: tuple[tuple[float, ...], ...],
+) -> tuple[int, ...]:
+    pickup_count = len(durations) - 1
+    destination_index = pickup_count
+    best_order: tuple[int, ...] | None = None
+    best_cost = math.inf
+    for start in range(pickup_count):
+        remaining = set(range(pickup_count))
+        remaining.remove(start)
+        order = [start]
+        while remaining:
+            current = order[-1]
+            next_index = min(
+                remaining,
+                key=lambda index: durations[current][index],
+            )
+            order.append(next_index)
+            remaining.remove(next_index)
+        candidate = tuple(order)
+        cost = _path_cost(candidate, destination_index, durations)
+        if cost < best_cost:
+            best_order, best_cost = candidate, cost
+    if best_order is None:
+        raise RoutingError("Rota sırası oluşturulamadı.")
+
+    improved = list(best_order)
+    for _ in range(10):
+        changed = False
+        current_cost = _path_cost(tuple(improved), destination_index, durations)
+        for start in range(len(improved) - 1):
+            for end in range(start + 1, len(improved)):
+                candidate = (
+                    improved[:start]
+                    + list(reversed(improved[start : end + 1]))
+                    + improved[end + 1 :]
+                )
+                candidate_cost = _path_cost(
+                    tuple(candidate),
+                    destination_index,
+                    durations,
+                )
+                if candidate_cost + 1e-9 < current_cost:
+                    improved = candidate
+                    current_cost = candidate_cost
+                    changed = True
+        if not changed:
+            break
+    return tuple(improved)
+
+
+def _path_cost(
+    order: tuple[int, ...],
+    destination_index: int,
+    durations: tuple[tuple[float, ...], ...],
+) -> float:
+    if not order:
+        return 0.0
+    cost = sum(
+        durations[first][second]
+        for first, second in zip(order, order[1:])
+    )
+    return cost + durations[order[-1]][destination_index]

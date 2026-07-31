@@ -11,6 +11,7 @@ from database.models import (
     ServisGuzergahGeometrisi,
     ServisGuzergahNoktasi,
     ServisVardiyasi,
+    UygulamaAyari,
 )
 from database.repositories.base import BaseRepository
 
@@ -24,6 +25,23 @@ class AddressCacheRepository(BaseRepository[AdresOnbellegi]):
                 AdresOnbellegi.normalize_adres == normalized_address
             )
         )
+
+
+class ApplicationSettingRepository(BaseRepository[UygulamaAyari]):
+    model = UygulamaAyari
+
+    def get_value(self, key: str) -> str | None:
+        setting = self.session.get(UygulamaAyari, key)
+        return None if setting is None else setting.deger
+
+    def set_value(self, key: str, value: str) -> UygulamaAyari:
+        setting = self.session.get(UygulamaAyari, key)
+        if setting is None:
+            setting = self.add(UygulamaAyari(anahtar=key, deger=value))
+        else:
+            setting.deger = value
+            self.session.flush()
+        return setting
 
 
 class PersonnelCoordinateRepository(BaseRepository[Personel]):
@@ -92,3 +110,6 @@ class RouteGeometryRepository(BaseRepository[ServisGuzergahGeometrisi]):
         if geometry is not None:
             geometry.guncel_mi = False
 
+    def mark_all_stale(self) -> None:
+        for geometry in self.list_all(include_inactive=True):
+            geometry.guncel_mi = False

@@ -10,6 +10,11 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.factory import (
+    DEFAULT_FACTORY_DESTINATION,
+    FACTORY_DESTINATION_SETTING_KEY,
+    FactoryDestination,
+)
 from database.connection import create_database_engine
 from database.init_db import initialize_database
 from database.models import (
@@ -19,6 +24,7 @@ from database.models import (
     PersonelTuru,
     Servis,
     ServisVardiyasi,
+    UygulamaAyari,
     VardiyaTuru,
     YakaTuru,
 )
@@ -75,6 +81,20 @@ class DatabaseTestCase(unittest.TestCase):
             "sofor",
         }
         self.assertTrue(expected_tables.issubset(set(inspect(self.engine).get_table_names())))
+
+    def test_default_factory_destination_is_seeded_without_overwriting_setting(self) -> None:
+        with self.session_factory() as session:
+            setting = session.get(UygulamaAyari, FACTORY_DESTINATION_SETTING_KEY)
+            self.assertIsNotNone(setting)
+            destination = FactoryDestination.from_json(setting.deger)
+            self.assertEqual(destination, DEFAULT_FACTORY_DESTINATION)
+            setting.deger = destination.with_coordinates(36.94, 34.98).to_json()
+            session.commit()
+        initialize_database(self.engine)
+        with self.session_factory() as session:
+            setting = session.get(UygulamaAyari, FACTORY_DESTINATION_SETTING_KEY)
+            destination = FactoryDestination.from_json(setting.deger)
+            self.assertEqual((destination.latitude, destination.longitude), (36.94, 34.98))
 
     def test_existing_database_receives_shift_route_column(self) -> None:
         legacy_engine = create_database_engine(

@@ -169,10 +169,19 @@ bulunan alanları ayrıca kabul edebilir. Mevcut koordinatlar yalnızca kullanı
 Personel adres alanlarından biri değiştiğinde mevcut koordinat `GUNCEL_DEGIL` durumuna
 alınır. Güzergâh adresi, noktası, sırası, aktifliği veya koordinatı değiştiğinde hem nokta
 koordinatı hem de servis-vardiya için saklanan rota uygun biçimde güncel değil olarak
-işaretlenir. `Rotayı Hesapla` yalnızca aktif ve koordinatı bulunan noktaları `sira_no`
-sırasında OSRM'ye gönderir; güncel olmadığı bilinen koordinatlarla yeni rota oluşturmaz ve
-OSRM nokta sırasını değiştirmez. Mesafe, tahmini süre ve GeoJSON rota çizgisi servis-vardiya
-bazında transaction ile saklanır.
+işaretlenir. Excel'deki veya ilk aktarımdaki `sira_no` değerleri rota sırası kabul edilmez.
+`Rotayı Hesapla`, yalnızca aktif ve güncel koordinatlı toplama noktaları ile sabit Seçil
+Kauçuk fabrika varış noktasını OSRM süre matrisine gönderir. Uygulama küçük rotalarda kesin,
+daha büyük rotalarda kontrollü sezgisel yöntemle serbest başlangıçlı ve sabit fabrika bitişli
+toplama sırasını hesaplar. Optimize edilen sıra güzergâh noktalarının yeni `sira_no` sırası
+olarak kaydedilir; ardından gerçek yol geometrisi alınır. Mesafe, tahmini süre ve GeoJSON
+rota çizgisi servis-vardiya bazında transaction ile saklanır.
+
+Her rotanın son noktası `Seçil Kauçuk`tur. Varsayılan merkez adresi Yunusoğlu Mahallesi,
+Yunusoğlu Sokak No:177/A-177/B Tarsus/Mersin ve işletme pini `36.945107, 34.979814` olarak
+`ayar` tablosuna yalnızca ayar eksikse eklenir. Harita ve Rota ekranındaki `Fabrika
+Koordinatını Düzenle` işlemiyle koordinat düzeltilebilir; bu işlem mevcut rota geometrilerini
+yeniden hesaplanmak üzere güncel değil durumuna getirir.
 
 Toplu koordinat çözümleme tek worker ve tek istek akışıyla çalışır, istekleri saniyede en
 fazla bir kez gönderir ve kullanıcı tarafından iptal edilebilir. Tek ve idari alanlarla
@@ -187,6 +196,7 @@ Servis adresleri kurulum yapılmadan ortam değişkenleriyle değiştirilebilir:
 ```powershell
 $env:SERVIS_ATAMA_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 $env:SERVIS_ATAMA_OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
+$env:SERVIS_ATAMA_OSRM_TABLE_URL = "https://router.project-osrm.org/table/v1/driving"
 $env:SERVIS_ATAMA_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 $env:SERVIS_ATAMA_USER_AGENT = "PersonelServisiAtamaSistemi/1.0"
 ```

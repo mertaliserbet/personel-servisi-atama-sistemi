@@ -35,7 +35,7 @@ def render_map_html(
             kind = "middle"
             if point.position_label.startswith("Başlangıç"):
                 kind = "start"
-            if point.position_label == "Bitiş":
+            if point.position_label.startswith("Bitiş"):
                 kind = "end"
             markers.append(
                 {
@@ -113,7 +113,7 @@ def render_map_html(
       legend.onAdd = function() {{
         const div = L.DomUtil.create('div', 'legend');
         div.innerHTML = '● Personel &nbsp; <span style="color:#18864b">● Başlangıç</span> &nbsp; '
-          + '<span style="color:#e79018">● Ara</span> &nbsp; <span style="color:#c93636">● Bitiş</span>';
+          + '<span style="color:#e79018">● Ara</span> &nbsp; <span style="color:#c93636">● Seçil Kauçuk (Bitiş)</span>';
         return div;
       }};
       legend.addTo(map);

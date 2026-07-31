@@ -94,10 +94,12 @@ from services.map_management import (
     RoutePointMapView,
 )
 from services.routing import (
+    OptimizedRoutingResult,
     OsrmRoutingService,
     RouteCoordinate,
     RoutingError,
     RoutingResult,
+    optimize_fixed_destination_order,
 )
 
 __all__ = [
@@ -169,6 +171,7 @@ __all__ = [
     "MapManagementError",
     "NetworkUnavailableError",
     "NominatimGeocodingService",
+    "OptimizedRoutingResult",
     "OsrmRoutingService",
     "RouteCalculationError",
     "RouteCalculationResult",
@@ -180,4 +183,5 @@ __all__ = [
     "RoutingResult",
     "assess_candidate",
     "compare_address",
+    "optimize_fixed_destination_order",
 ]

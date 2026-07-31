@@ -28,6 +28,7 @@ from database.models import (
     VardiyaTuru,
     YakaTuru,
 )
+from database.repositories import RoutePointRepository
 from services import (
     AddressInput,
     CoordinateManagementService,
@@ -37,6 +38,7 @@ from services import (
     GeocodingSearchResponse,
     MapManagementError,
     NominatimGeocodingService,
+    OptimizedRoutingResult,
     OsrmRoutingService,
     PersonnelFormData,
     PersonnelManagementService,
@@ -48,6 +50,7 @@ from services import (
     RoutingResult,
     assess_candidate,
     compare_address,
+    optimize_fixed_destination_order,
 )
 from services.map_rendering import render_map_html
 from ui.map_management_widget import MapManagementWidget
@@ -81,14 +84,27 @@ class StubGeocoder:
 
 
 class StubRouter:
-    def __init__(self, *, fail: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail: Exception | None = None,
+        pickup_order: tuple[int, ...] | None = None,
+    ) -> None:
         self.fail = fail
         self.calls: list[tuple[object, ...]] = []
+        self.pickup_order = pickup_order
+
+    def calculate_optimized_to_destination(self, pickups, destination):
+        if self.fail is not None:
+            raise self.fail
+        order = self.pickup_order or tuple(range(len(pickups)))
+        route = self.calculate(
+            tuple(pickups[index] for index in order) + (destination,)
+        )
+        return OptimizedRoutingResult(route=route, pickup_order=order)
 
     def calculate(self, coordinates):
         self.calls.append(tuple(coordinates))
-        if self.fail is not None:
-            raise self.fail
         return RoutingResult(
             distance_meters=12_500.0,
             duration_seconds=1_800.0,
@@ -628,7 +644,7 @@ class MapManagementTestCase(unittest.TestCase):
         self.assertEqual(result.candidates[0].neighborhood, "Anayurt Mahallesi")
         self.assertEqual(http.calls[0][1]["format"], "geocodejson")
 
-    def test_route_points_are_shown_and_sent_to_osrm_in_sequence_order(self) -> None:
+    def test_route_points_are_optimized_and_factory_is_always_last(self) -> None:
         shift_id, _ = self._seed_route()
         router = StubRouter()
         service = RouteCalculationService(self.session_factory, router=router)
@@ -636,11 +652,99 @@ class MapManagementTestCase(unittest.TestCase):
         sent = router.calls[0]
         self.assertEqual(
             [(item.latitude, item.longitude) for item in sent],
-            [(36.8, 34.6), (36.75, 34.55)],
+            [
+                (36.8, 34.6),
+                (36.75, 34.55),
+                (36.945107, 34.979814),
+            ],
         )
         self.assertEqual(result.distance_meters, 12_500)
         self.assertEqual(result.duration_seconds, 1_800)
-        self.assertEqual([point.sequence for point in result.map_data.points], [1, 2])
+        self.assertEqual(
+            [point.sequence for point in result.map_data.points],
+            [1, 2, 3],
+        )
+        self.assertTrue(result.map_data.points[-1].is_destination)
+        self.assertEqual(result.map_data.points[-1].label, "Seçil Kauçuk")
+        self.assertEqual(result.map_data.points[-1].position_label, "Bitiş / Fabrika")
+
+    def test_optimized_pickup_order_is_persisted_instead_of_excel_order(self) -> None:
+        shift_id, point_ids = self._seed_route()
+        service = RouteCalculationService(
+            self.session_factory,
+            router=StubRouter(pickup_order=(1, 0)),
+        )
+        result = service.calculate_shift(shift_id)
+        self.assertEqual(
+            [point.neighborhood for point in result.map_data.points],
+            ["TECE", "ÇİFTLİK", "YUNUSOĞLU MAHALLESİ"],
+        )
+        with self.session_factory() as session:
+            stored = RoutePointRepository(session).list_for_shift(
+                shift_id,
+                include_inactive=False,
+            )
+            self.assertEqual([point.id for point in stored], [point_ids[1], point_ids[0]])
+            self.assertEqual([point.sira_no for point in stored], [1, 2])
+
+    def test_exact_optimizer_uses_free_start_and_fixed_destination(self) -> None:
+        durations = (
+            (0.0, 10.0, 1.0, 10.0),
+            (1.0, 0.0, 10.0, 10.0),
+            (10.0, 10.0, 0.0, 1.0),
+            (10.0, 10.0, 10.0, 0.0),
+        )
+        self.assertEqual(
+            optimize_fixed_destination_order(durations),
+            (1, 0, 2),
+        )
+
+    def test_osrm_matrix_optimization_calls_route_with_factory_last(self) -> None:
+        http = QueueHttpClient(
+            [
+                {
+                    "code": "Ok",
+                    "durations": [
+                        [0, 10, 1],
+                        [1, 0, 10],
+                        [10, 10, 0],
+                    ],
+                },
+                {
+                    "code": "Ok",
+                    "routes": [
+                        {
+                            "distance": 1000,
+                            "duration": 120,
+                            "geometry": {
+                                "type": "LineString",
+                                "coordinates": [
+                                    [34.55, 36.75],
+                                    [34.6, 36.8],
+                                    [34.979814, 36.945107],
+                                ],
+                            },
+                        }
+                    ],
+                },
+            ]
+        )
+        router = OsrmRoutingService(http_client=http)
+        optimized = router.calculate_optimized_to_destination(
+            (
+                RouteCoordinate(latitude=36.8, longitude=34.6),
+                RouteCoordinate(latitude=36.75, longitude=34.55),
+            ),
+            RouteCoordinate(latitude=36.945107, longitude=34.979814),
+        )
+        self.assertEqual(optimized.pickup_order, (1, 0))
+        self.assertIn("/table/", http.calls[0][0])
+        self.assertTrue(
+            http.calls[1][0].endswith(
+                "/34.55000000,36.75000000;34.60000000,36.80000000;"
+                "34.97981400,36.94510700"
+            )
+        )
 
     def test_osrm_url_uses_longitude_latitude_in_given_order(self) -> None:
         http = QueueHttpClient(
@@ -677,9 +781,28 @@ class MapManagementTestCase(unittest.TestCase):
         shift_id, _ = self._seed_route()
         data = RouteCalculationService(self.session_factory).get_shift_map_data(shift_id)
         self.assertEqual(
-            [(point.district, point.neighborhood) for point in data.points],
+            [
+                (point.district, point.neighborhood)
+                for point in data.points
+                if not point.is_destination
+            ],
             [("YENİŞEHİR", "ÇİFTLİK"), ("MEZİTLİ", "TECE")],
         )
+
+    def test_factory_coordinate_change_marks_all_routes_stale(self) -> None:
+        first_shift, _ = self._seed_route("S_001", shift=VardiyaTuru.SABAH)
+        second_shift, _ = self._seed_route("S_002", shift=VardiyaTuru.AKSAM)
+        service = RouteCalculationService(
+            self.session_factory,
+            router=StubRouter(),
+        )
+        service.calculate_shift(first_shift)
+        service.calculate_shift(second_shift)
+        service.set_factory_coordinates(36.946, 34.981)
+        self.assertFalse(service.get_shift_map_data(first_shift).route_is_current)
+        self.assertFalse(service.get_shift_map_data(second_shift).route_is_current)
+        destination = service.get_factory_destination()
+        self.assertEqual((destination.latitude, destination.longitude), (36.946, 34.981))
 
     def test_same_service_different_shifts_store_different_routes(self) -> None:
         first_shift, _ = self._seed_route("S_001", shift=VardiyaTuru.SABAH)

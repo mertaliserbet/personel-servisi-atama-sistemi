@@ -107,6 +107,12 @@ class MapManagementWidget(QWidget):
         route_selection.addWidget(QLabel("Güzergâh Noktası:"))
         route_selection.addWidget(self.point_combo, 2)
         route_root.addLayout(route_selection)
+        factory_layout = QHBoxLayout()
+        self.factory_destination_label = QLabel("Sabit Varış: Seçil Kauçuk")
+        self.factory_coordinate_button = QPushButton("Fabrika Koordinatını Düzenle")
+        factory_layout.addWidget(self.factory_destination_label, 1)
+        factory_layout.addWidget(self.factory_coordinate_button)
+        route_root.addLayout(factory_layout)
         route_buttons = QHBoxLayout()
         self.show_route_button = QPushButton("Güzergâhı Haritada Göster")
         self.geocode_point_button = QPushButton("Seçili Noktayı Çözümle")
@@ -162,6 +168,9 @@ class MapManagementWidget(QWidget):
         )
         self.bulk_point_button.clicked.connect(lambda: self._start_bulk("GUZERGAH"))
         self.calculate_route_button.clicked.connect(self._calculate_route)
+        self.factory_coordinate_button.clicked.connect(
+            self._edit_factory_coordinates
+        )
         self.cancel_button.clicked.connect(self._cancel_operation)
         self.map_view.loadFinished.connect(self._map_loaded)
 
@@ -181,6 +190,7 @@ class MapManagementWidget(QWidget):
             self._set_combo_value(self.service_combo, selected_service)
             self.service_combo.blockSignals(False)
             self._service_changed()
+            self._refresh_factory_destination()
         except (PersonnelManagementError, ServiceManagementError) as error:
             self._show_error(str(error))
 
@@ -210,6 +220,8 @@ class MapManagementWidget(QWidget):
         try:
             data = self.route_service.get_shift_map_data(int(shift_id))
             for point in data.points:
+                if point.is_destination:
+                    continue
                 status = "" if point.latitude is not None and point.longitude is not None else " (Koordinat eksik)"
                 self.point_combo.addItem(
                     f"{point.sequence}. {point.label}{status}",
@@ -420,6 +432,49 @@ class MapManagementWidget(QWidget):
             self._route_calculated,
         )
 
+    def _refresh_factory_destination(self) -> None:
+        try:
+            destination = self.route_service.get_factory_destination()
+            self.factory_destination_label.setText(
+                f"Sabit Varış: {destination.name} — "
+                f"{destination.address}, {destination.district}/{destination.city} — "
+                f"{destination.latitude:.6f}, {destination.longitude:.6f}"
+            )
+        except MapManagementError as error:
+            self.factory_destination_label.setText(
+                f"Sabit fabrika varış ayarı okunamadı: {error}"
+            )
+
+    def _edit_factory_coordinates(self) -> None:
+        if self._operation_in_progress:
+            return
+        try:
+            destination = self.route_service.get_factory_destination()
+            dialog = CoordinateDialog(
+                latitude=destination.latitude,
+                longitude=destination.longitude,
+                parent=self,
+            )
+            dialog.setWindowTitle("Seçil Kauçuk Fabrika Koordinatı")
+            if not dialog.exec():
+                return
+            latitude, longitude = dialog.coordinates()
+            self.route_service.set_factory_coordinates(latitude, longitude)
+            self._refresh_factory_destination()
+            shift_id = self.shift_combo.currentData()
+            if shift_id is not None:
+                self._shown_route = self.route_service.get_shift_map_data(int(shift_id))
+                self._update_route_result(self._shown_route)
+                self._render_map()
+            QMessageBox.information(
+                self,
+                "Fabrika Varış Noktası",
+                "Seçil Kauçuk koordinatı kaydedildi. Mevcut rotalar güncel değil "
+                "olarak işaretlendi.",
+            )
+        except MapManagementError as error:
+            self._show_error(str(error))
+
     def _route_calculated(self, result: RouteCalculationResult) -> None:
         self._shown_route = result.map_data
         self._update_route_result(result.map_data)
@@ -428,7 +483,8 @@ class MapManagementWidget(QWidget):
             self,
             "Rota Hesaplandı",
             f"Toplam mesafe: {result.distance_meters / 1000:.2f} km\n"
-            f"Tahmini süre: {result.duration_seconds / 60:.1f} dakika",
+            f"Tahmini süre: {result.duration_seconds / 60:.1f} dakika\n"
+            "Toplama sırası optimize edildi; son durak Seçil Kauçuk.",
         )
 
     def _run_async(self, function, on_result) -> bool:
@@ -485,6 +541,7 @@ class MapManagementWidget(QWidget):
             self.geocode_point_button,
             self.manual_point_button,
             self.bulk_point_button,
+            self.factory_coordinate_button,
             self.calculate_route_button,
         ):
             button.setEnabled(not busy)

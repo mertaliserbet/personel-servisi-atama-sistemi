@@ -3,6 +3,7 @@
 from database.repositories.base import BaseRepository
 from database.repositories.mapping_repository import (
     AddressCacheRepository,
+    ApplicationSettingRepository,
     PersonnelCoordinateRepository,
     RouteGeometryRepository,
     RoutePointCoordinateRepository,
@@ -18,6 +19,7 @@ from database.repositories.servis_repository import (
 __all__ = [
     "BaseRepository",
     "AddressCacheRepository",
+    "ApplicationSettingRepository",
     "PersonnelCoordinateRepository",
     "PersonelRepository",
     "RoutePointRepository",
