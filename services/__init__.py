@@ -26,6 +26,7 @@ from services.personnel_management import (
     PersonnelWarningsRequireConfirmation,
 )
 from services.service_management import (
+    AssignedPersonnelView,
     CapacityBelowOccupancyError,
     DriverFormData,
     DriverNotFoundError,
@@ -116,8 +117,39 @@ from services.route_design import (
     RouteSummary,
     SavedRouteView,
 )
+from services.assignment_preview import (
+    AssignmentAlternative,
+    AssignmentCommitItem,
+    AssignmentCommitResult,
+    AssignmentPreview,
+    AssignmentPreviewError,
+    AssignmentPreviewResult,
+    AssignmentPreviewService,
+    CapacityNeedSummary,
+    PersonnelOption,
+)
+from services.assignment_geometry import (
+    NearestRoutePoint,
+    coordinates_from_geojson,
+    haversine_distance_meters,
+    nearest_point_on_linestring,
+)
 
 __all__ = [
+    "AssignedPersonnelView",
+    "AssignmentAlternative",
+    "AssignmentCommitItem",
+    "AssignmentCommitResult",
+    "AssignmentPreview",
+    "AssignmentPreviewError",
+    "AssignmentPreviewResult",
+    "AssignmentPreviewService",
+    "CapacityNeedSummary",
+    "PersonnelOption",
+    "NearestRoutePoint",
+    "coordinates_from_geojson",
+    "haversine_distance_meters",
+    "nearest_point_on_linestring",
     "ConflictBehavior",
     "CapacityBelowOccupancyError",
     "DriverFormData",

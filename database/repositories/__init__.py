@@ -1,6 +1,16 @@
 """Repository sınıflarının merkezi dışa aktarımı."""
 
 from database.repositories.base import BaseRepository
+from database.repositories.assignment_preview_repository import (
+    AssignmentPreviewRepository,
+    PersonnelSnapshot,
+    RouteCandidateSnapshot,
+    ShiftProfileSnapshot,
+)
+from database.repositories.assignment_repository import (
+    AssignedPersonnelSnapshot,
+    AssignmentRepository,
+)
 from database.repositories.mapping_repository import (
     AddressCacheRepository,
     ApplicationSettingRepository,
@@ -24,7 +34,13 @@ from database.repositories.servis_repository import (
 )
 
 __all__ = [
+    "AssignmentPreviewRepository",
+    "AssignedPersonnelSnapshot",
+    "AssignmentRepository",
     "BaseRepository",
+    "PersonnelSnapshot",
+    "RouteCandidateSnapshot",
+    "ShiftProfileSnapshot",
     "AddressCacheRepository",
     "ApplicationSettingRepository",
     "PersonnelCoordinateRepository",

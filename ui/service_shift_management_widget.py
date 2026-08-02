@@ -132,6 +132,26 @@ class ServiceShiftManagementWidget(QWidget):
         splitter.setSizes([700, 400])
         root.addWidget(splitter, 1)
 
+        assigned_group = QGroupBox("Seçili Servis-Vardiyaya Atanan Personeller")
+        assigned_layout = QVBoxLayout(assigned_group)
+        self.assigned_table = QTableWidget(0, 6)
+        self.assigned_table.setHorizontalHeaderLabels(
+            ["Sicil", "Personel", "Kayıtlı Rota", "Rota Uzaklığı", "Biniş Noktası", "Atama Tarihi"]
+        )
+        self.assigned_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.assigned_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.assigned_table.setAlternatingRowColors(True)
+        self.assigned_table.horizontalHeader().setStretchLastSection(True)
+        self.assigned_table.setMinimumHeight(150)
+        assigned_layout.addWidget(self.assigned_table)
+        self.assigned_count_label = QLabel("Atanan personel: 0")
+        assigned_layout.addWidget(self.assigned_count_label)
+        root.addWidget(assigned_group)
+
     def _connect_signals(self) -> None:
         self.filter_service_combo.currentIndexChanged.connect(self.refresh_list)
         self.refresh_button.clicked.connect(self.refresh_data)
@@ -193,7 +213,7 @@ class ServiceShiftManagementWidget(QWidget):
                 shift.shift,
                 shift.collar,
                 str(shift.capacity),
-                str(shift.active_assignment_count),
+                f"{shift.active_assignment_count}/{shift.capacity}",
                 shift.route_name or "",
                 "Aktif" if shift.active else "Pasif",
             )
@@ -231,10 +251,36 @@ class ServiceShiftManagementWidget(QWidget):
         self._set_combo_value(self.shift_combo, shift.shift)
         self._set_combo_value(self.collar_combo, shift.collar)
         self.capacity_spin.setValue(shift.capacity)
-        self.occupancy_label.setText(str(shift.active_assignment_count))
+        self.occupancy_label.setText(
+            f"{shift.active_assignment_count}/{shift.capacity} "
+            f"(%{(100 * shift.active_assignment_count / shift.capacity):.1f})"
+        )
         self.route_name_edit.setText(shift.route_name or "")
         self.active_check.setChecked(shift.active)
+        self._refresh_assigned_personnel(shift.id)
         self._update_button_states()
+
+    def _refresh_assigned_personnel(self, shift_id: int) -> None:
+        records = self.service.list_assigned_personnel(shift_id)
+        self.assigned_table.setRowCount(len(records))
+        for row, person in enumerate(records):
+            pickup = (
+                "-"
+                if person.pickup_latitude is None or person.pickup_longitude is None
+                else f"{person.pickup_latitude:.6f}, {person.pickup_longitude:.6f}"
+            )
+            values = (
+                person.personnel_number,
+                person.personnel_name,
+                person.route_name or "-",
+                "-" if person.distance_meters is None else f"{person.distance_meters:.0f} m",
+                pickup,
+                person.assignment_date.strftime("%d.%m.%Y %H:%M"),
+            )
+            for column, value in enumerate(values):
+                self.assigned_table.setItem(row, column, QTableWidgetItem(value))
+        self.assigned_table.resizeColumnsToContents()
+        self.assigned_count_label.setText(f"Atanan personel: {len(records)}")
 
     @staticmethod
     def _set_combo_value(combo: QComboBox, value: object) -> None:
@@ -272,6 +318,9 @@ class ServiceShiftManagementWidget(QWidget):
         self.occupancy_label.setText("0")
         self.route_name_edit.clear()
         self.active_check.setChecked(True)
+        if hasattr(self, "assigned_table"):
+            self.assigned_table.setRowCount(0)
+            self.assigned_count_label.setText("Atanan personel: 0")
         self._update_button_states()
 
     def _update_button_states(self) -> None:

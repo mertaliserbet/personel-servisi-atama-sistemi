@@ -244,6 +244,40 @@ $env:SERVIS_ATAMA_USER_AGENT = "PersonelServisiAtamaSistemi/1.0"
 İnternet bağlantısı, timeout veya geçersiz servis cevabı uygulamayı kapatmaz. Kullanıcıya
 Türkçe hata gösterilir; teknik ayrıntı log dosyasına yazılır ve loglara tam adres eklenmez.
 
+## Personel-rota uygunluğu ve atama önizleme (Aşama 12)
+
+`Personel Atama` sekmesi tek sicil, tek/çoklu personel seçimi veya aktif ataması olmayan
+tüm aktif personel için önce salt-okunur bir atama önizlemesi üretir. Değerlendirme
+düğmeleri tek başına atama yapmaz. Kalıcı kayıt yalnızca `Seçili Öneriyi Atamayı Onayla`
+veya `Tüm Uygun Önerileri Atamayı Onayla` düğmesinden sonra ikinci onay verilirse oluşur.
+
+Değerlendirme yalnızca aktif servis, aktif servis-vardiya ve aktif kayıtlı rota
+bağlantılarını kullanır. Vardiya ve yaka türü birebir eşleşir. Stajyerin başlangıç ve
+bitiş tarihleri değerlendirme gününde geçerli olmalıdır. Personel koordinatı ile kayıtlı
+rotanın bütün `LineString` geometrisi arasındaki en kısa mesafe hesaplanır; yalnızca rota
+kontrol noktalarına uzaklık ölçülmez. Çizgi üzerindeki en yakın koordinat önerilen biniş
+noktasıdır. Varsayılan yakınlık sınırı 1500 metredir, `ayar` tablosunda saklanır ve ekrandan
+değiştirilebilir.
+
+Toplu önizlemede mevcut aktif doluluk ile önizleme içi koltuk rezervasyonları birlikte
+izlenir; kapasite hiçbir zaman aşılmaz ve aynı koltuk iki personele önerilmez. Kadrolu
+personel stajyerden önce değerlendirilir. Uygun adaylar mesafe, kapasite, kalan kapasite ve
+servis koduyla kararlı biçimde sıralanır. Sonuç tablosu önceki/sonraki doluluğu, kalan
+kapasiteyi, uzaklığı, biniş noktasını, atanamama nedenini ve alternatif rotaları gösterir.
+Seçili öneri haritada rota, personel, biniş noktası ve aradaki kesikli bağlantıyla açılır.
+Kapasite yetersizliği ayrı özetlenir; otomatik servis oluşturulmaz.
+
+Onaylanan atama `atama` tablosunda personel, servis-vardiya, seçilen kayıtlı rota,
+rotaya uzaklık ve en yakın biniş koordinatıyla tek transaction içinde saklanır. Kayıt
+anında aktiflik, vardiya/yaka, rota geometrisi, yakınlık sınırı, mevcut atama ve kapasite
+yeniden doğrulanır; herhangi bir hata bütün onay grubunu geri alır. Servis Yönetimi >
+Servis Vardiyaları ekranında doluluk ve seçili servis-vardiyaya atanmış personeller görünür.
+
+Uygulama adı `Seçil Kauçuk Personel Servisi Atama Sistemi`dir. Sağ üst marka alanı,
+pencere ikonu ve Windows görev çubuğu ikonu `assets/secil_kaucuk.jpeg` dosyasını kullanır.
+Verilen SVG dosyası JPEG verisini sarmaladığı ve Qt'de güvenilir çizilmediği için doğrudan
+görüntülenebilen JPEG tercih edilmiştir.
+
 ## Testleri çalıştırma
 
 ```powershell

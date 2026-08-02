@@ -81,6 +81,36 @@ class DatabaseTestCase(unittest.TestCase):
             "sofor",
         }
         self.assertTrue(expected_tables.issubset(set(inspect(self.engine).get_table_names())))
+        assignment_columns = {
+            column["name"] for column in inspect(self.engine).get_columns("atama")
+        }
+        self.assertIn("rota_id", assignment_columns)
+
+    def test_existing_assignment_table_receives_nullable_route_column(self) -> None:
+        legacy_engine = create_database_engine(
+            Path(self.temporary_directory.name) / "legacy_assignment.db"
+        )
+        try:
+            with legacy_engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "CREATE TABLE atama (id INTEGER PRIMARY KEY, personel_id INTEGER)"
+                )
+                connection.exec_driver_sql(
+                    "INSERT INTO atama (id, personel_id) VALUES (1, 7)"
+                )
+            initialize_database(legacy_engine)
+            columns = {
+                column["name"]
+                for column in inspect(legacy_engine).get_columns("atama")
+            }
+            with legacy_engine.connect() as connection:
+                row = connection.exec_driver_sql(
+                    "SELECT id, personel_id, rota_id FROM atama"
+                ).one()
+            self.assertIn("rota_id", columns)
+            self.assertEqual((row[0], row[1], row[2]), (1, 7, None))
+        finally:
+            legacy_engine.dispose()
 
     def test_default_factory_destination_is_seeded_without_overwriting_setting(self) -> None:
         with self.session_factory() as session:

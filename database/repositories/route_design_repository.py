@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from database.models import (
@@ -81,11 +81,19 @@ class SavedRouteRepository(BaseRepository[Rota]):
         statement = (
             select(func.count(Atama.id))
             .select_from(Atama)
-            .join(
+            .outerjoin(
                 ServisVardiyaRota,
                 ServisVardiyaRota.servis_vardiya_id == Atama.servis_vardiya_id,
             )
-            .where(ServisVardiyaRota.rota_id == route_id)
+            .where(
+                or_(
+                    Atama.rota_id == route_id,
+                    and_(
+                        Atama.rota_id.is_(None),
+                        ServisVardiyaRota.rota_id == route_id,
+                    ),
+                )
+            )
         )
         return int(self.session.scalar(statement) or 0)
 

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from database.models import Servis, ServisVardiyasi, Sofor, VardiyaTuru, YakaTuru
 from database.repositories import (
+    AssignmentRepository,
     ServisRepository,
     ServisVardiyasiRepository,
     SoforRepository,
@@ -122,6 +124,19 @@ class ServiceShiftView:
 
 
 @dataclass(frozen=True, slots=True)
+class AssignedPersonnelView:
+    assignment_id: int
+    personnel_id: int
+    personnel_number: str
+    personnel_name: str
+    route_name: str | None
+    distance_meters: float | None
+    pickup_latitude: float | None
+    pickup_longitude: float | None
+    assignment_date: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class DriverView:
     id: int
     first_name: str | None
@@ -163,6 +178,36 @@ class ServiceManagementService:
         except Exception as error:
             logger.exception("Servis bilgileri alınamadı: servis_id=%s", service_id)
             raise ServiceManagementError("Servis bilgileri alınamadı.") from error
+
+    def list_assigned_personnel(
+        self,
+        shift_id: int,
+    ) -> tuple[AssignedPersonnelView, ...]:
+        try:
+            with self.session_factory() as session:
+                records = AssignmentRepository(session).list_active_for_shift(shift_id)
+                return tuple(
+                    AssignedPersonnelView(
+                        assignment_id=item.assignment_id,
+                        personnel_id=item.personnel_id,
+                        personnel_number=item.personnel_number,
+                        personnel_name=item.personnel_name,
+                        route_name=item.route_name,
+                        distance_meters=item.distance_meters,
+                        pickup_latitude=item.pickup_latitude,
+                        pickup_longitude=item.pickup_longitude,
+                        assignment_date=item.assignment_date,
+                    )
+                    for item in records
+                )
+        except Exception as error:
+            logger.exception(
+                "Servis-vardiya personel listesi alınamadı: vardiya_id=%s",
+                shift_id,
+            )
+            raise ServiceManagementError(
+                "Servise atanmış personel listesi alınamadı."
+            ) from error
 
     def delete_service_controlled(self, service_id: int) -> ServiceDeleteResult:
         """Kullanılmamış servisi siler, geçmiş ilişkili servisi pasifleştirir."""

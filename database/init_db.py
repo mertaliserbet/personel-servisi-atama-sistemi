@@ -6,6 +6,10 @@ import logging
 
 from sqlalchemy import Engine, inspect
 
+from app.assignment_preview import (
+    DEFAULT_PERSONNEL_ROUTE_MAX_DISTANCE_METERS,
+    PERSONNEL_ROUTE_MAX_DISTANCE_SETTING_KEY,
+)
 from app.factory import DEFAULT_FACTORY_DESTINATION, FACTORY_DESTINATION_SETTING_KEY
 from app.paths import DATABASE_PATH
 from database.connection import engine
@@ -52,6 +56,23 @@ def _ensure_saved_route_link_columns(database_engine: Engine) -> None:
     logger.info("Kayıtlı rota servis-vardiya anlık görüntü alanları hazırlandı.")
 
 
+def _ensure_assignment_route_column(database_engine: Engine) -> None:
+    """Mevcut atamaları koruyarak seçilen kayıtlı rota bağını ekler."""
+    table_name = "atama"
+    inspector = inspect(database_engine)
+    if table_name not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    with database_engine.begin() as connection:
+        if "rota_id" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE atama ADD COLUMN rota_id INTEGER"
+            )
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_atama_rota_id ON atama (rota_id)"
+        )
+
+
 def _ensure_default_factory_destination(database_engine: Engine) -> None:
     """Eksik ayarı ekler; kullanıcının mevcut fabrika ayarını değiştirmez."""
     if "ayar" not in inspect(database_engine).get_table_names():
@@ -62,6 +83,20 @@ def _ensure_default_factory_destination(database_engine: Engine) -> None:
             (
                 FACTORY_DESTINATION_SETTING_KEY,
                 DEFAULT_FACTORY_DESTINATION.to_json(),
+            ),
+        )
+
+
+def _ensure_default_assignment_preview_settings(database_engine: Engine) -> None:
+    """Atama önizlemesi yakınlık sınırını yalnızca eksikse ekler."""
+    if "ayar" not in inspect(database_engine).get_table_names():
+        return
+    with database_engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT OR IGNORE INTO ayar (anahtar, deger) VALUES (?, ?)",
+            (
+                PERSONNEL_ROUTE_MAX_DISTANCE_SETTING_KEY,
+                str(DEFAULT_PERSONNEL_ROUTE_MAX_DISTANCE_METERS),
             ),
         )
 
@@ -356,8 +391,10 @@ def initialize_database(database_engine: Engine = engine) -> None:
     """Tanımlı tüm SQLAlchemy tablolarını yoksa oluşturur."""
     Base.metadata.create_all(database_engine)
     _ensure_saved_route_link_columns(database_engine)
+    _ensure_assignment_route_column(database_engine)
     _apply_compatibility_migrations(database_engine)
     _ensure_address_road_columns(database_engine, "personel")
     _ensure_address_road_columns(database_engine, "servis_guzergah_noktasi")
     _ensure_default_factory_destination(database_engine)
+    _ensure_default_assignment_preview_settings(database_engine)
     logger.info("SQLAlchemy veritabanı şeması hazır: %s", DATABASE_PATH)

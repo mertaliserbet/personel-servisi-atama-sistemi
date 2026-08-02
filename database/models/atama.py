@@ -22,6 +22,7 @@ from database.models.enums import AtamaDurumu, enum_type
 
 if TYPE_CHECKING:
     from database.models.personel import Personel
+    from database.models.rota_tasarimi import Rota
     from database.models.servis import ServisVardiyasi
 
 
@@ -54,6 +55,10 @@ class Atama(ActiveMixin, TimestampMixin, Base):
         ForeignKey("servis_vardiya.id", ondelete="RESTRICT"),
         index=True,
     )
+    rota_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rota.id", ondelete="RESTRICT"),
+        index=True,
+    )
     atama_tarihi: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
@@ -71,3 +76,4 @@ class Atama(ActiveMixin, TimestampMixin, Base):
     servis_vardiyasi: Mapped[ServisVardiyasi | None] = relationship(
         back_populates="atamalar"
     )
+    rota: Mapped[Rota | None] = relationship()
