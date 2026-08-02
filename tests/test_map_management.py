@@ -655,7 +655,7 @@ class MapManagementTestCase(unittest.TestCase):
             [
                 (36.8, 34.6),
                 (36.75, 34.55),
-                (36.945107, 34.979814),
+                (36.94375678451021, 34.97910084152655),
             ],
         )
         self.assertEqual(result.distance_meters, 12_500)
@@ -721,7 +721,7 @@ class MapManagementTestCase(unittest.TestCase):
                                 "coordinates": [
                                     [34.55, 36.75],
                                     [34.6, 36.8],
-                                    [34.979814, 36.945107],
+                                    [34.97910084152655, 36.94375678451021],
                                 ],
                             },
                         }
@@ -735,14 +735,17 @@ class MapManagementTestCase(unittest.TestCase):
                 RouteCoordinate(latitude=36.8, longitude=34.6),
                 RouteCoordinate(latitude=36.75, longitude=34.55),
             ),
-            RouteCoordinate(latitude=36.945107, longitude=34.979814),
+            RouteCoordinate(
+                latitude=36.94375678451021,
+                longitude=34.97910084152655,
+            ),
         )
         self.assertEqual(optimized.pickup_order, (1, 0))
         self.assertIn("/table/", http.calls[0][0])
         self.assertTrue(
             http.calls[1][0].endswith(
                 "/34.55000000,36.75000000;34.60000000,36.80000000;"
-                "34.97981400,36.94510700"
+                "34.97910084,36.94375678"
             )
         )
 

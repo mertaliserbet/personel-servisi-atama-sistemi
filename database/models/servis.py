@@ -25,6 +25,7 @@ from database.models.enums import VardiyaTuru, YakaTuru, enum_type
 
 if TYPE_CHECKING:
     from database.models.atama import Atama
+    from database.models.rota_tasarimi import ServisVardiyaRota
 
 
 class Sofor(ActiveMixin, TimestampMixin, Base):
@@ -97,6 +98,10 @@ class ServisVardiyasi(ActiveMixin, TimestampMixin, Base):
         back_populates="servis_vardiyasi",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    kayitli_rota_baglantilari: Mapped[list[ServisVardiyaRota]] = relationship(
+        back_populates="servis_vardiyasi",
+        cascade="all, delete-orphan",
     )
 
 

@@ -24,6 +24,10 @@ DEFAULT_OSRM_TABLE_URL = os.getenv(
     "SERVIS_ATAMA_OSRM_TABLE_URL",
     "https://router.project-osrm.org/table/v1/driving",
 )
+DEFAULT_OSRM_MATCH_URL = os.getenv(
+    "SERVIS_ATAMA_OSRM_MATCH_URL",
+    "https://router.project-osrm.org/match/v1/driving",
+)
 
 
 class RoutingError(ExternalServiceError):
@@ -49,6 +53,12 @@ class OptimizedRoutingResult:
     pickup_order: tuple[int, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class MatchedTraceResult:
+    snapped_coordinates: tuple[RouteCoordinate, ...]
+    route: RoutingResult
+
+
 class OsrmRoutingService:
     def __init__(
         self,
@@ -56,12 +66,92 @@ class OsrmRoutingService:
         http_client: JsonHttpClient | None = None,
         base_url: str = DEFAULT_OSRM_URL,
         table_url: str = DEFAULT_OSRM_TABLE_URL,
+        match_url: str = DEFAULT_OSRM_MATCH_URL,
         timeout_seconds: float = 25.0,
     ) -> None:
         self.http_client = http_client or JsonHttpClient()
         self.base_url = base_url.rstrip("/")
         self.table_url = table_url.rstrip("/")
+        self.match_url = match_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+
+    def match_trace(
+        self,
+        coordinates: tuple[RouteCoordinate, ...],
+        *,
+        radius_meters: float = 25.0,
+    ) -> MatchedTraceResult:
+        """Fareyle çizilen izi yakınındaki kesintisiz sürülebilir yol ağına oturtur."""
+        if len(coordinates) < 2:
+            raise RoutingError("Yola oturtmak için en az iki çizim noktası gerekir.")
+        if len(coordinates) > 100:
+            raise RoutingError("Tek çizimde en fazla 100 örnek nokta kullanılabilir.")
+        if not math.isfinite(radius_meters) or radius_meters <= 0:
+            raise RoutingError("Yol eşleştirme yarıçapı geçersiz.")
+        coordinate_path = ";".join(
+            f"{point.longitude:.8f},{point.latitude:.8f}" for point in coordinates
+        )
+        radiuses = ";".join(f"{radius_meters:.1f}" for _ in coordinates)
+        try:
+            payload = self.http_client.get_json(
+                f"{self.match_url}/{coordinate_path}",
+                params={
+                    "overview": "full",
+                    "geometries": "geojson",
+                    "steps": "false",
+                    "tidy": "true",
+                    "gaps": "split",
+                    "radiuses": radiuses,
+                },
+                headers={"User-Agent": APPLICATION_USER_AGENT},
+                timeout=min(self.timeout_seconds, 12.0),
+            )
+        except ExternalServiceError:
+            logger.warning("OSRM yol eşleştirme isteği tamamlanamadı.")
+            raise
+        if not isinstance(payload, dict) or payload.get("code") != "Ok":
+            message = payload.get("message") if isinstance(payload, dict) else None
+            raise RoutingError(
+                str(message or "Çizim sürülebilir yol ağıyla eşleştirilemedi.")
+            )
+        tracepoints = payload.get("tracepoints")
+        if not isinstance(tracepoints, list) or len(tracepoints) != len(coordinates):
+            raise InvalidExternalResponseError(
+                "Yol eşleştirme servisinin iz noktaları geçersiz."
+            )
+        snapped: list[RouteCoordinate] = []
+        for source, tracepoint in zip(coordinates, tracepoints):
+            if not isinstance(tracepoint, dict):
+                raise RoutingError(
+                    f"Çizimin bir bölümü {radius_meters:.0f} metre içinde "
+                    "sürülebilir bir yolla eşleşmedi. Çizim kabul edilmedi."
+                )
+            location = tracepoint.get("location")
+            if not isinstance(location, list) or len(location) < 2:
+                raise InvalidExternalResponseError(
+                    "Yol eşleştirme servisinin koordinat cevabı geçersiz."
+                )
+            try:
+                candidate = RouteCoordinate(float(location[1]), float(location[0]))
+            except (TypeError, ValueError) as error:
+                raise InvalidExternalResponseError(
+                    "Yol eşleştirme servisinin koordinat cevabı geçersiz."
+                ) from error
+            maximum_snap_distance = radius_meters * 3.0 + 1.0
+            if _haversine_meters(source, candidate) > maximum_snap_distance:
+                raise RoutingError(
+                    f"Çizimin bir bölümü sürülebilir yoldan {radius_meters * 3:.0f} "
+                    "metreden fazla uzakta. Çizim kabul edilmedi."
+                )
+            snapped.append(candidate)
+        matchings = payload.get("matchings")
+        if not isinstance(matchings, list) or len(matchings) != 1:
+            raise RoutingError(
+                "Çizim kesintisiz tek bir sürülebilir güzergâhla eşleşmedi. "
+                "Yalnızca yolların üzerinden yeniden çizin."
+            )
+        route = self._routing_result(matchings[0], response_name="yol eşleştirme")
+        return MatchedTraceResult(tuple(snapped), route)
 
     def calculate_optimized_to_destination(
         self,
@@ -161,14 +251,21 @@ class OsrmRoutingService:
         routes = payload.get("routes")
         if not isinstance(routes, list) or not routes or not isinstance(routes[0], dict):
             raise InvalidExternalResponseError("Rota servisi geçersiz cevap döndürdü.")
-        route = routes[0]
+        return self._routing_result(routes[0], response_name="rota")
+
+    @staticmethod
+    def _routing_result(
+        route: dict[str, object],
+        *,
+        response_name: str,
+    ) -> RoutingResult:
         geometry = route.get("geometry")
         try:
             distance = float(route["distance"])
             duration = float(route["duration"])
         except (KeyError, TypeError, ValueError) as error:
             raise InvalidExternalResponseError(
-                "Rota servisinin mesafe veya süre cevabı geçersiz."
+                f"{response_name.capitalize()} servisinin mesafe veya süre cevabı geçersiz."
             ) from error
         if (
             distance < 0
@@ -177,12 +274,29 @@ class OsrmRoutingService:
             or geometry.get("type") != "LineString"
             or not isinstance(geometry.get("coordinates"), list)
         ):
-            raise InvalidExternalResponseError("Rota servisi geçersiz rota döndürdü.")
+            raise InvalidExternalResponseError(
+                f"{response_name.capitalize()} servisi geçersiz geometri döndürdü."
+            )
         return RoutingResult(
             distance_meters=distance,
             duration_seconds=duration,
             geometry=geometry,
         )
+
+
+def _haversine_meters(first: RouteCoordinate, second: RouteCoordinate) -> float:
+    earth_radius = 6_371_000.0
+    latitude_1 = math.radians(first.latitude)
+    latitude_2 = math.radians(second.latitude)
+    latitude_delta = latitude_2 - latitude_1
+    longitude_delta = math.radians(second.longitude - first.longitude)
+    value = (
+        math.sin(latitude_delta / 2) ** 2
+        + math.cos(latitude_1)
+        * math.cos(latitude_2)
+        * math.sin(longitude_delta / 2) ** 2
+    )
+    return 2 * earth_radius * math.asin(min(1.0, math.sqrt(value)))
 
 
 def optimize_fixed_destination_order(

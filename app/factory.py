@@ -59,6 +59,6 @@ DEFAULT_FACTORY_DESTINATION = FactoryDestination(
     city="MERSİN",
     district="TARSUS",
     neighborhood="YUNUSOĞLU MAHALLESİ",
-    latitude=36.945107,
-    longitude=34.979814,
+    latitude=36.94375678451021,
+    longitude=34.97910084152655,
 )

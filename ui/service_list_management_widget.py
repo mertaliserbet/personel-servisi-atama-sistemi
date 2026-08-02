@@ -139,9 +139,10 @@ class ServiceListManagementWidget(QWidget):
         self.update_button = QPushButton("Güncelle")
         self.clear_button = QPushButton("Temizle")
         self.toggle_active_button = QPushButton("Aktif/Pasif")
+        self.delete_button = QPushButton("Kontrollü Sil")
         for button in (self.new_button, self.save_button, self.update_button):
             primary_buttons.addWidget(button)
-        for button in (self.clear_button, self.toggle_active_button):
+        for button in (self.clear_button, self.toggle_active_button, self.delete_button):
             secondary_buttons.addWidget(button)
         form_root.addLayout(primary_buttons)
         form_root.addLayout(secondary_buttons)
@@ -168,6 +169,7 @@ class ServiceListManagementWidget(QWidget):
         self.update_button.clicked.connect(self._update_record)
         self.clear_button.clicked.connect(self._clear_form)
         self.toggle_active_button.clicked.connect(self._toggle_active)
+        self.delete_button.clicked.connect(self._delete_service)
         self.create_first_shift_check.toggled.connect(
             self._update_first_shift_fields
         )
@@ -315,6 +317,7 @@ class ServiceListManagementWidget(QWidget):
         self.save_button.setEnabled(self._new_record_mode and not selected)
         self.update_button.setEnabled(selected)
         self.toggle_active_button.setEnabled(selected)
+        self.delete_button.setEnabled(selected)
         self.toggle_active_button.setText(
             "Pasif Yap" if selected and self._selected_active else "Aktif Yap"
         )
@@ -397,6 +400,26 @@ class ServiceListManagementWidget(QWidget):
             )
             self.data_changed.emit()
             self._select_service(updated.id)
+        except ServiceManagementError as error:
+            self._show_error(str(error))
+
+    def _delete_service(self) -> None:
+        if self._selected_service_id is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Kontrollü Servis Silme",
+            "Kullanılmamış servis kalıcı silinir; atama/geçmiş ilişkisi bulunan "
+            "servis ve vardiyaları yalnızca pasif yapılır. Devam edilsin mi?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = self.service.delete_service_controlled(self._selected_service_id)
+            QMessageBox.information(self, "Servis Silme", result.message)
+            self._clear_form()
+            self.refresh_data()
+            self.data_changed.emit()
         except ServiceManagementError as error:
             self._show_error(str(error))
 

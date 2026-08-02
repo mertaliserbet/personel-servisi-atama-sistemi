@@ -13,6 +13,8 @@ from database.repositories import (
     ServisRepository,
     ServisVardiyasiRepository,
     SoforRepository,
+    delete_unused_service,
+    service_historical_assignment_count,
 )
 from database.session import SessionFactory, session_scope
 from normalization.text import is_excel_error, normalize_text
@@ -62,6 +64,13 @@ class CapacityBelowOccupancyError(ServiceManagementError):
 
 class DriverScheduleConflictError(ServiceManagementError):
     """Bir şoföre çakışan aktif servis görevleri verildiğinde üretilir."""
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceDeleteResult:
+    physical_deleted: bool
+    deactivated: bool
+    message: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +163,39 @@ class ServiceManagementService:
         except Exception as error:
             logger.exception("Servis bilgileri alınamadı: servis_id=%s", service_id)
             raise ServiceManagementError("Servis bilgileri alınamadı.") from error
+
+    def delete_service_controlled(self, service_id: int) -> ServiceDeleteResult:
+        """Kullanılmamış servisi siler, geçmiş ilişkili servisi pasifleştirir."""
+        try:
+            with session_scope(self.session_factory) as session:
+                service = ServisRepository(session).get_detail(service_id)
+                if service is None:
+                    raise ServiceNotFoundError("Servis kaydı bulunamadı.")
+                if service_historical_assignment_count(session, service_id):
+                    service.aktif_mi = False
+                    for shift in service.vardiyalar:
+                        shift.aktif_mi = False
+                    return ServiceDeleteResult(
+                        physical_deleted=False,
+                        deactivated=True,
+                        message=(
+                            "Bu servis atama/geçmiş ilişkisi içerdiği için silinmedi; "
+                            "servis ve vardiyaları pasif yapıldı."
+                        ),
+                    )
+                delete_unused_service(session, service)
+                return ServiceDeleteResult(
+                    physical_deleted=True,
+                    deactivated=False,
+                    message="Kullanılmamış servis kalıcı olarak silindi.",
+                )
+        except (ServiceNotFoundError, ServiceManagementError):
+            raise
+        except Exception as error:
+            logger.exception("Kontrollü servis silme işlemi başarısız oldu.")
+            raise ServiceManagementError(
+                "Servis silinemedi. Yapılan işlem geri alındı."
+            ) from error
 
     def create_service(
         self,

@@ -37,6 +37,7 @@ from services.service_management import (
     ServiceManagementError,
     ServiceManagementService,
     ServiceManagementValidationError,
+    ServiceDeleteResult,
     ServiceNotFoundError,
     ServiceShiftFormData,
     ServiceShiftNotFoundError,
@@ -101,6 +102,20 @@ from services.routing import (
     RoutingResult,
     optimize_fixed_destination_order,
 )
+from services.route_design import (
+    AddressConfirmationRequired,
+    ControlledDeleteResult,
+    NewServiceForRoute,
+    RouteCalculation,
+    RouteDesignError,
+    RouteDesignPoint,
+    RouteDesignService,
+    RouteDesignValidationError,
+    RouteNotFoundError,
+    RouteSaveRequest,
+    RouteSummary,
+    SavedRouteView,
+)
 
 __all__ = [
     "ConflictBehavior",
@@ -135,6 +150,7 @@ __all__ = [
     "ServiceManagementError",
     "ServiceManagementService",
     "ServiceManagementValidationError",
+    "ServiceDeleteResult",
     "ServiceNotFoundError",
     "ServiceShiftFormData",
     "ServiceShiftNotFoundError",
@@ -184,4 +200,16 @@ __all__ = [
     "assess_candidate",
     "compare_address",
     "optimize_fixed_destination_order",
+    "AddressConfirmationRequired",
+    "ControlledDeleteResult",
+    "NewServiceForRoute",
+    "RouteCalculation",
+    "RouteDesignError",
+    "RouteDesignPoint",
+    "RouteDesignService",
+    "RouteDesignValidationError",
+    "RouteNotFoundError",
+    "RouteSaveRequest",
+    "RouteSummary",
+    "SavedRouteView",
 ]

@@ -30,6 +30,7 @@ Bu aşamada aşağıdaki altyapı hazırdır:
 - Nominatim ile kullanıcı onaylı adres çözümleme ve manuel koordinat yönetimi
 - Personel ve servis-vardiya güzergâhlarını gösteren OpenStreetMap harita ekranı
 - OSRM ile sıralı güzergâh rota, mesafe ve tahmini süre hesaplama
+- Haritada manuel veya adreslerden otomatik rota tasarımı ve kayıtlı rota yönetimi
 
 Doğrulanmış Servis Kapasite ve Personel Excel kayıtları kullanıcı onayıyla
 veritabanına aktarılabilir. Personel, fiziksel servis, servis-vardiya ve şoför kayıtları
@@ -130,6 +131,44 @@ tarafından `MANUEL` olarak belirlenir.
 Bu ekranlar personeli servise atamaz, otomatik atama algoritmasını çalıştırmaz ve
 `atama` tablosundaki mevcut kayıtları değiştirmez.
 
+## Rota Tasarımı ve kayıtlı rota yönetimi
+
+`Rota Tasarımı` ana sekmesi, mevcut `Harita ve Rota` ekranından bağımsız çalışır.
+Manuel yöntemde haritaya tıklanarak sıralı ve sürüklenebilir kontrol noktaları eklenir;
+ilk nokta kullanıcı tarafından belirlenen başlangıçtır. `Çizerek Oluştur` aracında sol
+fare tuşu basılı tutularak yaklaşık iz çizilir. İz bırakıldığında OSRM Match ile yakındaki
+sürülebilir yollara oturtulur; yola oturmayan veya kesintisiz eşleşmeyen çizim
+reddedilir ve önceki rota korunur. Bir işaret `Nokta Sil` aracıyla tıklanarak veya her
+modda sağ tıklanarak kaldırılabilir. `Yeni Rota` boş haritayı Mersin genelinde açar.
+Otomatik yöntemde `acik_adres`,
+`mahalle`, `sokak`, `cadde`, `ilce`, `il`, `enlem` ve `boylam` alanlarıyla sıralı
+adres noktaları girilir. Koordinatı eksik adresler Aşama 10 Nominatim doğrulama
+altyapısıyla çözülür. Uyuşmazlık sessizce kabul edilmez; kullanıcı onayı gerekir.
+
+Her iki yöntemde de kontrol noktaları OSRM ile yollar üzerinden birleştirilir. Harita
+noktaları sürüklenebilir, araya nokta eklenebilir, silinebilir ve yukarı/aşağı taşınabilir.
+Noktalar değişince önceki hesap geçersiz olur ve kullanıcı rotayı yeniden hesaplar.
+OSRM veya internet hatasında mevcut noktalar ve önceki çizim korunur. Bitiş noktası
+`ayar` tablosundaki sabit Seçil Kauçuk varış noktasıdır.
+
+Kaydetmeden önce rota adı, servis-vardiya, kapasite, mesafe, tahmini süre ve nokta
+sayısını içeren özet onayı gösterilir. Rota GeoJSON geometrisi ve sıralı kontrol
+noktalarıyla saklanır. `rota`, `rota_kontrol_noktasi` ve `servis_vardiya_rota`
+tabloları eski güzergâh tablolarını değiştirmeden ayrı bir üst model oluşturur. Böylece
+aynı fiziksel servisin farklı vardiyalarında farklı rotalar, aynı kayıtlı rotada ise
+birden fazla servis-vardiya ilişkisi kullanılabilir.
+
+Kullanıcı mevcut servis-vardiyaları seçebilir veya önerilen servis kodunu ayrıca
+onaylayarak yeni fiziksel servis ve ilk vardiyasını oluşturabilir. Yeni servis,
+servis-vardiya, rota, bağlantılar, kontrol noktaları ve geometri tek transaction içinde
+kaydedilir; herhangi bir hata bütün işlemi geri alır. Kayıtlı rotalar aranabilir,
+haritada açılabilir, güncellenebilir ve aktif/pasif yapılabilir. Atama geçmişi olmayan
+rota veya servis kontrollü biçimde fiziksel silinir. Atama/geçmiş ilişkisi bulunan rota
+silinmez ve pasif yapılır; servis silinmez, servis ile vardiyaları pasif yapılır.
+
+Bu aşama personel ataması yapmaz, doluluk değiştirmez, personel biniş noktası veya
+rotaya uzaklık hesaplamaz ve otomatik servis seçimi başlatmaz.
+
 ## Servis güzergâhı aktarımı
 
 Servis Mahalle/Güzergâh dosyasını seçip analiz ettikten sonra `Geçerli Güzergâh
@@ -197,6 +236,7 @@ Servis adresleri kurulum yapılmadan ortam değişkenleriyle değiştirilebilir:
 $env:SERVIS_ATAMA_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 $env:SERVIS_ATAMA_OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 $env:SERVIS_ATAMA_OSRM_TABLE_URL = "https://router.project-osrm.org/table/v1/driving"
+$env:SERVIS_ATAMA_OSRM_MATCH_URL = "https://router.project-osrm.org/match/v1/driving"
 $env:SERVIS_ATAMA_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 $env:SERVIS_ATAMA_USER_AGENT = "PersonelServisiAtamaSistemi/1.0"
 ```
@@ -231,6 +271,9 @@ personel veya servis kaydı eklemez.
 - `servis_vardiya`
 - `servis_guzergah_noktasi`
 - `servis_guzergah_geometrisi`
+- `rota`
+- `rota_kontrol_noktasi`
+- `servis_vardiya_rota`
 - `atama`
 - `adres_onbellek`
 - `ayar`

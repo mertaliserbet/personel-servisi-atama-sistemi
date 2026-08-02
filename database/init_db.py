@@ -20,6 +20,38 @@ from normalization.address import extract_address_roads
 logger = logging.getLogger(__name__)
 
 
+def _ensure_saved_route_link_columns(database_engine: Engine) -> None:
+    """Erken Aşama 11 veritabanlarını ilişki anlık görüntü alanlarıyla tamamlar."""
+    table_name = "servis_vardiya_rota"
+    inspector = inspect(database_engine)
+    if table_name not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    additions = {
+        "vardiya_tanimi": "VARCHAR(50) NOT NULL DEFAULT ''",
+        "yaka_turu": "VARCHAR(20) NOT NULL DEFAULT ''",
+        "kapasite": "INTEGER NOT NULL DEFAULT 1",
+    }
+    missing = [name for name in additions if name not in columns]
+    if not missing:
+        return
+    with database_engine.begin() as connection:
+        for name in missing:
+            connection.exec_driver_sql(
+                f"ALTER TABLE {table_name} ADD COLUMN {name} {additions[name]}"
+            )
+        connection.exec_driver_sql(
+            "UPDATE servis_vardiya_rota SET "
+            "vardiya_tanimi = COALESCE((SELECT vardiya_turu FROM servis_vardiya "
+            "WHERE servis_vardiya.id = servis_vardiya_rota.servis_vardiya_id), ''), "
+            "yaka_turu = COALESCE((SELECT yaka_turu FROM servis_vardiya "
+            "WHERE servis_vardiya.id = servis_vardiya_rota.servis_vardiya_id), ''), "
+            "kapasite = COALESCE((SELECT kapasite FROM servis_vardiya "
+            "WHERE servis_vardiya.id = servis_vardiya_rota.servis_vardiya_id), 1)"
+        )
+    logger.info("Kayıtlı rota servis-vardiya anlık görüntü alanları hazırlandı.")
+
+
 def _ensure_default_factory_destination(database_engine: Engine) -> None:
     """Eksik ayarı ekler; kullanıcının mevcut fabrika ayarını değiştirmez."""
     if "ayar" not in inspect(database_engine).get_table_names():
@@ -323,6 +355,7 @@ def _apply_compatibility_migrations(database_engine: Engine) -> None:
 def initialize_database(database_engine: Engine = engine) -> None:
     """Tanımlı tüm SQLAlchemy tablolarını yoksa oluşturur."""
     Base.metadata.create_all(database_engine)
+    _ensure_saved_route_link_columns(database_engine)
     _apply_compatibility_migrations(database_engine)
     _ensure_address_road_columns(database_engine, "personel")
     _ensure_address_road_columns(database_engine, "servis_guzergah_noktasi")
